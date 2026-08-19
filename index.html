@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PLANKING | 플레이스 경쟁 분석</title>
+  <meta name="description" content="PLANKING은 실제 플레이스 순위와 실험적 경쟁 지표를 함께 보여주는 분석 도구입니다" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">PLANKING · PLACE RANK INTELLIGENCE</p>
+        <h1>플레이스 순위, <span>숫자 뒤의 경쟁력</span>까지 봅니다.</h1>
+        <p class="lead">실제 노출 순위와 함께 키워드 관련성·업체 경쟁력·지역 적합성·종합 경쟁점수를 한 화면에서 비교합니다.</p>
+      </div>
+      <button id="loadDemo" class="button button-primary">하단삼겹살 데모 보기</button>
+    </header>
+
+    <section class="input-card">
+      <div class="input-grid">
+        <label>
+          <span>키워드</span>
+          <input id="queryInput" value="하단삼겹살" autocomplete="off" />
+        </label>
+        <label>
+          <span>플레이스 ID</span>
+          <input id="placeInput" value="1800550902" autocomplete="off" />
+        </label>
+        <label class="file-label">
+          <span>데이터 JSON</span>
+          <input id="fileInput" type="file" accept="application/json,.json,.txt" />
+        </label>
+      </div>
+      <div class="input-actions">
+        <p>엔진 결과 JSON 또는 저장한 네이버 GraphQL Response를 업로드할 수 있습니다. 실시간 수집 기능은 이 MVP에서 분리했습니다.</p>
+        <button id="analyzeFile" class="button button-secondary">업로드 데이터 분석</button>
+      </div>
+      <p id="status" class="status" role="status"></p>
+    </section>
+
+    <section id="dashboard" class="dashboard is-hidden" aria-live="polite">
+      <div class="hero-card">
+        <div>
+          <div class="query-line"><span id="queryBadge"></span><span id="confidenceBadge" class="confidence"></span></div>
+          <h2 id="placeName"></h2>
+          <p id="confidenceCopy" class="muted"></p>
+        </div>
+        <div class="rank-block">
+          <span>현재 순위</span>
+          <strong><b id="rankValue"></b>위</strong>
+          <small id="resultCount"></small>
+        </div>
+      </div>
+
+      <div class="score-grid">
+        <article class="score-card" data-key="relevance">
+          <div class="score-head"><span>키워드 관련성</span><b id="relevanceScore"></b></div>
+          <div class="meter"><i id="relevanceBar"></i></div>
+          <p>N1을 같은 검색 결과 안에서 상대 비교한 값</p>
+        </article>
+        <article class="score-card" data-key="strength">
+          <div class="score-head"><span>업체 경쟁력</span><b id="strengthScore"></b></div>
+          <div class="meter"><i id="strengthBar"></i></div>
+          <p>N2를 같은 검색 결과 안에서 상대 비교한 값</p>
+        </article>
+        <article class="score-card" data-key="region_fit">
+          <div class="score-head"><span>지역 적합성</span><b id="regionScore"></b></div>
+          <div class="meter"><i id="regionBar"></i></div>
+          <p>지역형 검색에서 엔티티 경계 적합도를 비교한 값</p>
+        </article>
+        <article class="score-card composite" data-key="composite">
+          <div class="score-head"><span>종합 경쟁점수</span><b id="compositeScore"></b></div>
+          <div class="meter"><i id="compositeBar"></i></div>
+          <p>N3를 같은 검색 결과 안에서 상대 비교한 값</p>
+        </article>
+      </div>
+
+      <div class="content-grid">
+        <section class="panel focus-panel">
+          <div class="panel-title">
+            <div>
+              <span class="panel-kicker">CHECK FIRST</span>
+              <h3>점검 우선 영역</h3>
+            </div>
+            <span id="focusLabel" class="chip"></span>
+          </div>
+          <p id="focusMessage"></p>
+          <div class="raw-grid">
+            <div><span>내부 N1</span><strong id="rawN1"></strong></div>
+            <div><span>내부 N2</span><strong id="rawN2"></strong></div>
+            <div><span>내부 N3</span><strong id="rawN3"></strong></div>
+            <div><span>지역 밖 거리</span><strong id="outsideKm"></strong></div>
+          </div>
+        </section>
+
+        <section class="panel method-panel">
+          <div class="panel-title"><div><span class="panel-kicker">METHOD</span><h3>이 점수는 어떻게 읽나요?</h3></div></div>
+          <ul id="methodList" class="method-list"></ul>
+        </section>
+      </div>
+
+      <section class="panel table-panel">
+        <div class="panel-title table-title">
+          <div><span class="panel-kicker">COMPETITORS</span><h3>상위 경쟁업체 비교</h3></div>
+          <span id="regionName" class="chip subtle"></span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>순위</th><th>업체</th><th>관련성</th><th>경쟁력</th><th>지역</th><th>종합</th></tr>
+            </thead>
+            <tbody id="competitorBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <p id="notice" class="notice"></p>
+    </section>
+  </main>
+
+  <script type="module" src="./web/app.mjs"></script>
+</body>
+</html>
