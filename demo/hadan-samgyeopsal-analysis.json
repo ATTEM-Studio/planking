@@ -1,0 +1,33 @@
+{
+  "query": "하단삼겹살",
+  "result_count": 70,
+  "target": {
+    "place_id": "1800550902",
+    "name": "부산삼겹살 하단본점 숯불갈비",
+    "rank": 1,
+    "scores": {"relevance": 100, "strength": 97, "region_fit": 100, "composite": 100},
+    "raw": {"n1": 0.573875, "n2": 0.515822, "n3": 0.42476781714909645, "outside_km": 0.0},
+    "confidence": "high",
+    "sources": {"n1": "observed", "n2": "observed", "n3": "calibrated_formula"},
+    "region_name": "하단",
+    "focus": {"key": "strength", "label": "업체 경쟁력", "message": "현재 비교군에서 업체 경쟁력 점수가 상대적으로 낮습니다. 해석상 점검 우선순위로만 사용하세요."},
+    "confidence_copy": "관측값 비중이 높아 비교 신뢰도가 높습니다."
+  },
+  "competitors": [
+    {"place_id":"1800550902","name":"부산삼겹살 하단본점 숯불갈비","rank":1,"scores":{"relevance":100,"strength":97,"region_fit":100,"composite":100},"raw":{"n1":0.573875,"n2":0.515822,"n3":0.42476781714909645,"outside_km":0.0},"confidence":"high","sources":{"n1":"observed","n2":"observed","n3":"calibrated_formula"},"region_name":"하단"},
+    {"place_id":"55489894","name":"숙성고 통삼겹무한리필","rank":2,"scores":{"relevance":96,"strength":74,"region_fit":100,"composite":99},"raw":{"n1":0.560739,"n2":0.476928,"n3":0.41834260574530474,"outside_km":0.0},"confidence":"high","sources":{"n1":"observed","n2":"observed","n3":"calibrated_formula"},"region_name":"하단"},
+    {"place_id":"665395076","name":"돈미담 하단본점","rank":3,"scores":{"relevance":97,"strength":61,"region_fit":100,"composite":97},"raw":{"n1":0.562321,"n2":0.459706,"n3":0.41828946444874093,"outside_km":0.0},"confidence":"high","sources":{"n1":"observed","n2":"observed","n3":"calibrated_formula"},"region_name":"하단"},
+    {"place_id":"1136014312","name":"박돼장 하단점","rank":4,"scores":{"relevance":83,"strength":91,"region_fit":100,"composite":96},"raw":{"n1":0.554589,"n2":0.507201,"n3":0.41716464259040686,"outside_km":0.0},"confidence":"high","sources":{"n1":"observed","n2":"observed","n3":"calibrated_formula"},"region_name":"하단"},
+    {"place_id":"1364857299","name":"올바른 하단점","rank":5,"scores":{"relevance":86,"strength":83,"region_fit":100,"composite":91},"raw":{"n1":0.555134,"n2":0.490421,"n3":0.4167368658319758,"outside_km":0.0},"confidence":"high","sources":{"n1":"observed","n2":"observed","n3":"calibrated_formula"},"region_name":"하단"},
+    {"place_id":"1681954686","name":"삼굽살 하단점","rank":6,"scores":{"relevance":74,"strength":99,"region_fit":100,"composite":94},"raw":{"n1":0.552445,"n2":0.521524,"n3":0.41689627252393435,"outside_km":0.0},"confidence":"high","sources":{"n1":"observed","n2":"observed","n3":"calibrated_formula"},"region_name":"하단"}
+  ],
+  "method": {
+    "rank": "검색 결과 배열의 실제 노출 순서",
+    "relevance": "N1의 동일 검색 결과 내 상대 백분위",
+    "strength": "N2의 동일 검색 결과 내 상대 백분위",
+    "region_fit": "지역형 검색에서 지역 엔티티 경계 밖 거리의 비교군 상대값",
+    "composite": "N3의 동일 검색 결과 내 상대 백분위"
+  },
+  "notice": "관련성·경쟁력·지역 적합성·종합점수는 역공학 기반 실험 지표이며 네이버 공식 점수가 아닙니다.",
+  "engine_version": "planking-runtime-0.1.0"
+}
