@@ -43,6 +43,17 @@ test('place metrics preserve raw save bucket while parsing review counts', () =>
   });
 });
 
+test('current allSearch review fields map to visitor and blog review counts', () => {
+  assert.deepEqual(extractPlaceMetrics({
+    reviewCount: 31,
+    placeReviewCount: 635,
+  }), {
+    visitorReviewCount: 635,
+    blogReviewCount: 31,
+    saveCountRaw: null,
+  });
+});
+
 test('place metrics keep missing values null instead of fabricating zero', () => {
   assert.deepEqual(extractPlaceMetrics({}), {
     visitorReviewCount: null,
