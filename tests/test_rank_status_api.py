@@ -17,8 +17,8 @@ class FakeResponse:
         return self.payload
 
 
-def test_list_slots_returns_latest_job_and_rank_history():
-    payload = [
+def test_list_slots_returns_latest_job_rank_history_and_place_metrics():
+    slot_payload = [
         {
             "id": "slot-1",
             "keyword": "경성대맛집",
@@ -35,14 +35,35 @@ def test_list_slots_returns_latest_job_and_rank_history():
             ],
         }
     ]
-    seen = {}
+    metrics_payload = [
+        {
+            "target_mid": "1340244014",
+            "measured_date": "2026-08-30",
+            "visitor_review_count": 2082,
+            "blog_review_count": 590,
+            "save_count_raw": "900",
+            "measured_at": "2026-08-30T10:06:00Z",
+        },
+        {
+            "target_mid": "1340244014",
+            "measured_date": "2026-08-29",
+            "visitor_review_count": 2070,
+            "blog_review_count": 586,
+            "save_count_raw": "890",
+            "measured_at": "2026-08-29T10:06:00Z",
+        },
+    ]
+    seen = []
+    responses = iter([FakeResponse(slot_payload), FakeResponse(metrics_payload)])
 
     def opener(request, timeout=0):
-        seen["url"] = request.full_url
-        seen["authorization"] = request.headers.get("Authorization")
-        seen["apikey"] = request.headers.get("Apikey")
-        seen["timeout"] = timeout
-        return FakeResponse(payload)
+        seen.append({
+            "url": request.full_url,
+            "authorization": request.headers.get("Authorization"),
+            "apikey": request.headers.get("Apikey"),
+            "timeout": timeout,
+        })
+        return next(responses)
 
     client = SupabaseRankStatusClient(
         url="https://example.supabase.co",
@@ -56,11 +77,32 @@ def test_list_slots_returns_latest_job_and_rank_history():
     assert result[0]["latestJob"]["status"] == "SUCCESS"
     assert result[0]["history"][0]["rank"] == 19
     assert result[0]["history"][1]["rank"] == 20
-    assert "rank_jobs" in seen["url"]
-    assert "rank_history" in seen["url"]
-    assert seen["authorization"] is None
-    assert seen["apikey"] == "sb_secret_example"
-    assert seen["timeout"] == 7
+    assert result[0]["placeMetrics"][0]["visitor_review_count"] == 2082
+    assert result[0]["placeMetrics"][1]["save_count_raw"] == "890"
+    assert "rank_jobs" in seen[0]["url"]
+    assert "rank_history" in seen[0]["url"]
+    assert "place_metrics_history" in seen[1]["url"]
+    assert "target_mid" in seen[1]["url"]
+    assert seen[0]["authorization"] is None
+    assert seen[0]["apikey"] == "sb_secret_example"
+    assert seen[0]["timeout"] == 7
+
+
+def test_empty_slot_list_skips_metrics_query():
+    calls = 0
+
+    def opener(request, timeout=0):
+        nonlocal calls
+        calls += 1
+        return FakeResponse([])
+
+    client = SupabaseRankStatusClient(
+        url="https://example.supabase.co",
+        service_role_key="sb_secret_example",
+        opener=opener,
+    )
+    assert client.list_slots() == []
+    assert calls == 1
 
 
 def test_legacy_service_role_keeps_bearer_auth():
