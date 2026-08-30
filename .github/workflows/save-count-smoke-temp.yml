@@ -22,3 +22,88 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Live Naver smoke
         run: node collector/src/cli.mjs once --keyword "하단카페" --mid "1328453904"
+      - name: Diagnose getRestaurants GraphQL
+        working-directory: collector
+        run: |
+          node --input-type=module <<'NODE'
+          import { chromium } from 'playwright';
+
+          const keyword = '하단고기집';
+          const targetMid = '1800550902';
+          const browser = await chromium.launch({ headless: true });
+          const context = await browser.newContext({
+            viewport: { width: 1920, height: 1080 },
+            locale: 'ko-KR',
+            timezoneId: 'Asia/Seoul',
+            geolocation: { latitude: 35.153272, longitude: 129.034248 },
+            permissions: ['geolocation'],
+          });
+          const page = await context.newPage();
+
+          function findTarget(node) {
+            if (!node || typeof node !== 'object') return null;
+            if (Array.isArray(node)) {
+              for (const value of node) {
+                const found = findTarget(value);
+                if (found) return found;
+              }
+              return null;
+            }
+            const mid = node.mid ?? node.id ?? node.placeId ?? node.place_id;
+            if (mid !== undefined && String(mid) === targetMid) return node;
+            for (const value of Object.values(node)) {
+              const found = findTarget(value);
+              if (found) return found;
+            }
+            return null;
+          }
+
+          page.on('request', request => {
+            const url = request.url();
+            if (!url.includes('graphql')) return;
+            const raw = request.postData();
+            try {
+              const parsed = JSON.parse(raw || 'null');
+              const ops = Array.isArray(parsed) ? parsed : [parsed];
+              for (const op of ops) {
+                console.log('GRAPHQL_REQUEST', JSON.stringify({
+                  url,
+                  operationName: op?.operationName ?? null,
+                  input: op?.variables?.input ?? null,
+                }));
+              }
+            } catch {
+              console.log('GRAPHQL_REQUEST', JSON.stringify({ url, rawLength: raw?.length ?? 0 }));
+            }
+          });
+
+          page.on('response', async response => {
+            const url = response.url();
+            if (!url.includes('graphql')) return;
+            try {
+              const payload = await response.json();
+              const target = findTarget(payload);
+              if (!target) return;
+              console.log('TARGET_GRAPHQL_ITEM', JSON.stringify({
+                url,
+                keys: Object.keys(target).sort(),
+                id: target.id ?? target.mid ?? target.placeId ?? target.place_id,
+                visitorReviewCount: target.visitorReviewCount ?? target.placeReviewCount ?? null,
+                blogCafeReviewCount: target.blogCafeReviewCount ?? target.reviewCount ?? null,
+                saveCount: target.saveCount ?? target.save_count ?? target.saveCountRaw ?? null,
+              }));
+            } catch (error) {
+              console.log('GRAPHQL_RESPONSE_PARSE_ERROR', String(error?.message ?? error));
+            }
+          });
+
+          await page.goto(`https://search.naver.com/search.naver?where=nexearch&query=${encodeURIComponent(keyword)}`, {
+            waitUntil: 'domcontentloaded',
+            timeout: 15000,
+          });
+          await page.waitForTimeout(8000);
+          console.log('FINAL_URL', page.url());
+          console.log('TITLE', await page.title());
+          await context.close();
+          await browser.close();
+          NODE
