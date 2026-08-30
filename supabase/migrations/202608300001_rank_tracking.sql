@@ -42,3 +42,50 @@ create index if not exists rank_jobs_status_requested_at_idx
 
 create index if not exists rank_history_slot_measured_date_idx
   on public.rank_history(slot_id, measured_date desc);
+
+create or replace function public.claim_next_rank_job()
+returns table (
+  job_id uuid,
+  slot_id uuid,
+  keyword text,
+  target_mid text
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  claimed public.rank_jobs%rowtype;
+begin
+  select j.*
+    into claimed
+  from public.rank_jobs j
+  where j.status = 'PENDING'
+  order by j.requested_at asc, j.id asc
+  for update skip locked
+  limit 1;
+
+  if not found then
+    return;
+  end if;
+
+  update public.rank_jobs j
+     set status = 'RUNNING',
+         started_at = now(),
+         attempt_count = j.attempt_count + 1,
+         error_code = null,
+         error_message = null
+   where j.id = claimed.id
+   returning j.* into claimed;
+
+  return query
+  select claimed.id, claimed.slot_id, s.keyword, s.target_mid
+    from public.rank_slots s
+   where s.id = claimed.slot_id;
+end;
+$$;
+
+revoke all on function public.claim_next_rank_job() from public;
+revoke all on function public.claim_next_rank_job() from anon;
+revoke all on function public.claim_next_rank_job() from authenticated;
+grant execute on function public.claim_next_rank_job() to service_role;
