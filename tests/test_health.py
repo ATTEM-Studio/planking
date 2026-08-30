@@ -12,7 +12,7 @@ class FakeResponse:
         return b"[]"
 
 
-def test_check_supabase_queries_rank_slots_with_service_role():
+def _capture_headers(key: str):
     seen = {}
 
     def opener(request, timeout=0):
@@ -24,16 +24,27 @@ def test_check_supabase_queries_rank_slots_with_service_role():
 
     result = check_supabase(
         url="https://example.supabase.co",
-        service_role_key="secret-key",
+        service_role_key=key,
         opener=opener,
         timeout=4,
     )
+    return result, seen
 
+
+def test_check_supabase_uses_apikey_only_for_new_secret_key():
+    result, seen = _capture_headers("sb_secret_example")
     assert result == {"ok": True, "database": "connected"}
     assert seen["url"].endswith("/rest/v1/rank_slots?select=id&limit=1")
-    assert seen["authorization"] == "Bearer secret-key"
-    assert seen["apikey"] == "secret-key"
+    assert seen["authorization"] is None
+    assert seen["apikey"] == "sb_secret_example"
     assert seen["timeout"] == 4
+
+
+def test_check_supabase_keeps_bearer_for_legacy_service_role_jwt():
+    legacy = "eyJhbGciOiJIUzI1NiJ9.payload.signature"
+    _result, seen = _capture_headers(legacy)
+    assert seen["authorization"] == f"Bearer {legacy}"
+    assert seen["apikey"] == legacy
 
 
 def test_check_supabase_rejects_missing_configuration():
