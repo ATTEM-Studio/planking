@@ -26,7 +26,7 @@ def test_normalize_slot_id_requires_uuid():
         pass
 
 
-def test_get_detail_returns_slot_and_full_history_ordered_desc():
+def test_get_detail_returns_slot_rank_history_and_place_metrics_ordered_desc():
     seen = []
     responses = iter([
         FakeResponse([{
@@ -39,6 +39,10 @@ def test_get_detail_returns_slot_and_full_history_ordered_desc():
         FakeResponse([
             {"measured_date": "2026-08-30", "rank": 19, "status": "FOUND", "measured_at": "2026-08-30T11:06:44Z"},
             {"measured_date": "2026-08-29", "rank": 20, "status": "FOUND", "measured_at": "2026-08-29T11:06:44Z"},
+        ]),
+        FakeResponse([
+            {"target_mid": "1328453904", "measured_date": "2026-08-30", "visitor_review_count": 323, "blog_review_count": 120, "save_count_raw": "1,000+", "measured_at": "2026-08-30T11:06:44Z"},
+            {"target_mid": "1328453904", "measured_date": "2026-08-29", "visitor_review_count": 320, "blog_review_count": 118, "save_count_raw": "900+", "measured_at": "2026-08-29T11:06:44Z"},
         ]),
     ])
 
@@ -55,11 +59,16 @@ def test_get_detail_returns_slot_and_full_history_ordered_desc():
 
     assert result["keyword"] == "하단카페"
     assert [row["rank"] for row in result["history"]] == [19, 20]
+    assert [row["visitor_review_count"] for row in result["placeMetrics"]] == [323, 320]
+    assert result["placeMetrics"][0]["save_count_raw"] == "1,000+"
     assert seen[0][0] == "GET"
     assert "rank_slots" in seen[0][1]
     assert seen[1][0] == "GET"
     assert "rank_history" in seen[1][1]
     assert "order=measured_date.desc" in seen[1][1]
+    assert seen[2][0] == "GET"
+    assert "place_metrics_history" in seen[2][1]
+    assert "target_mid=eq.1328453904" in seen[2][1]
     assert seen[0][2] == "sb_secret_example"
 
 
