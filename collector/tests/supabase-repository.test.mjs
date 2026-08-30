@@ -59,6 +59,27 @@ test('upsertHistory uses slot/date conflict key and merge-duplicates', async () 
   assert.equal(payload.rank, 19);
 });
 
+test('upsertPlaceMetrics preserves raw save count and uses MID/date conflict key', async () => {
+  const { calls, fetchImpl } = fakeFetchFactory();
+  const repo = new SupabaseRankRepository({ url: 'https://db.test/', serviceRoleKey: 'sb_secret_example', fetchImpl });
+  await repo.upsertPlaceMetrics('1800550902', '2026-08-31', {
+    visitorReviewCount: 5498,
+    blogReviewCount: 3166,
+    saveCountRaw: '87,000+',
+  });
+  assert.match(calls[0].url, /place_metrics_history\?on_conflict=target_mid,measured_date$/);
+  const payload = JSON.parse(calls[0].options.body);
+  assert.deepEqual(payload, {
+    target_mid: '1800550902',
+    measured_date: '2026-08-31',
+    visitor_review_count: 5498,
+    blog_review_count: 3166,
+    save_count_raw: '87,000+',
+    measured_at: payload.measured_at,
+  });
+  assert.match(payload.measured_at, /^\d{4}-\d{2}-\d{2}T/);
+});
+
 test('complete and fail update terminal job fields', async () => {
   const { calls, fetchImpl } = fakeFetchFactory();
   const repo = new SupabaseRankRepository({ url: 'https://db.test', serviceRoleKey: 'sb_secret_example', fetchImpl });
