@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatRankResult, parseTargetMid, rankDelta } from '../web/rank-tracker-utils.mjs';
+import { formatRankResult, jobLabel, parseTargetMid, rankDelta } from '../web/rank-tracker-utils.mjs';
 
 test('parseTargetMid accepts plain MID and Naver place URLs', () => {
   assert.equal(parseTargetMid('1340244014'), '1340244014');
@@ -12,8 +12,14 @@ test('parseTargetMid accepts plain MID and Naver place URLs', () => {
 test('formatRankResult distinguishes found and true out of range', () => {
   assert.equal(formatRankResult({ status: 'FOUND', rank: 19 }), '19위');
   assert.equal(formatRankResult({ status: 'OUT_OF_RANGE', rank: null }), '300+');
+  assert.equal(formatRankResult({ status: 'INCOMPLETE', rank: null }), '—');
   assert.equal(formatRankResult({ status: 'BLOCKED', rank: null }), '—');
   assert.equal(formatRankResult(null), '—');
+});
+
+test('jobLabel exposes incomplete traversal separately from failure', () => {
+  assert.equal(jobLabel('INCOMPLETE'), '조회 불완전');
+  assert.equal(jobLabel('FAILED'), '조회 실패');
 });
 
 test('rankDelta treats a lower rank number as improvement', () => {

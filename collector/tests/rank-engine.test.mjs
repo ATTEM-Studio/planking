@@ -41,12 +41,14 @@ test('complete top-300 traversal returns OUT_OF_RANGE with null rank', () => {
   assert.deepEqual({ status: result.status, rank: result.rank }, { status: 'OUT_OF_RANGE', rank: null });
 });
 
-test('short traversal must be explicitly complete before returning OUT_OF_RANGE', () => {
+test('short traversal can never be promoted to OUT_OF_RANGE', () => {
   const pages = [[{ mid: '1', name: 'x' }]];
   assert.throws(
     () => findRankAcrossPages({ targetMid: 'missing', pages, maxRank: 300 }),
     /incomplete traversal/,
   );
-  const result = findRankAcrossPages({ targetMid: 'missing', pages, maxRank: 300, complete: true });
-  assert.equal(result.status, 'OUT_OF_RANGE');
+  assert.throws(
+    () => findRankAcrossPages({ targetMid: 'missing', pages, maxRank: 300, complete: true }),
+    /incomplete traversal/,
+  );
 });

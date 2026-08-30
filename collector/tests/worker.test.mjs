@@ -51,11 +51,11 @@ test('OUT_OF_RANGE writes null history and completes as OUT_OF_RANGE', async () 
   assert.equal(complete[2].status, 'OUT_OF_RANGE');
 });
 
-for (const status of ['BLOCKED', 'TIMEOUT', 'FAILED']) {
+for (const status of ['INCOMPLETE', 'BLOCKED', 'TIMEOUT', 'FAILED']) {
   test(`${status} does not overwrite history and records terminal failure`, async () => {
     const repository = makeRepository(job);
     const collector = { async collect() {
-      return { status, rank: null, pagesScanned: 1, itemsScanned: 50, matchedMid: null, errorCode: status, errorMessage: 'x' };
+      return { status, rank: null, pagesScanned: 1, itemsScanned: 20, matchedMid: null, errorCode: status, errorMessage: 'x' };
     } };
     await runOne({ repository, collector, now });
     assert.equal(repository.calls.some(call => call[0] === 'history'), false);

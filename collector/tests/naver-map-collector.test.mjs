@@ -94,6 +94,18 @@ test('uses GraphQL response after page 2 click and preserves cumulative organic 
   assert.equal(result.rank, 51);
 });
 
+test('missing next page before 300 results is INCOMPLETE, never OUT_OF_RANGE', async () => {
+  const first = Array.from({ length: 20 }, (_, i) => ({ id: String(1000 + i), name: `P${i}` }));
+  const browserFactory = async () => makeBrowser({ page1: page1Response(first) });
+  const result = await new NaverMapCollector({ browserFactory, pageDelayMs: 0 }).collect({
+    keyword: '하단카', targetMid: 'missing',
+  });
+  assert.equal(result.status, 'INCOMPLETE');
+  assert.equal(result.rank, null);
+  assert.equal(result.itemsScanned, 20);
+  assert.equal(result.errorCode, 'INCOMPLETE_TRAVERSAL');
+});
+
 test('classifies captcha body as BLOCKED', async () => {
   const browserFactory = async () => makeBrowser({
     page1: page1Response([]),
