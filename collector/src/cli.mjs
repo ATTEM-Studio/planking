@@ -9,12 +9,7 @@ function requiredFlag(value, flag) {
   return text;
 }
 
-export function parseArgs(argv) {
-  const [command, ...rest] = argv;
-  if (!command) throw new Error('command is required: once or worker');
-  if (command === 'worker') return { command };
-  if (command !== 'once') throw new Error(`unknown command: ${command}`);
-
+function parseFlagPairs(rest) {
   const values = {};
   for (let index = 0; index < rest.length; index += 2) {
     const flag = rest[index];
@@ -22,6 +17,23 @@ export function parseArgs(argv) {
     if (!flag?.startsWith('--') || value === undefined) throw new Error(`invalid argument near ${flag ?? '<end>'}`);
     values[flag.slice(2)] = value;
   }
+  return values;
+}
+
+export function parseArgs(argv) {
+  const [command, ...rest] = argv;
+  if (!command) throw new Error('command is required: once, drain, or worker');
+  if (command === 'worker') return { command };
+
+  const values = parseFlagPairs(rest);
+  if (command === 'drain') {
+    const maxJobs = Number.parseInt(values.max || '10', 10);
+    if (!Number.isInteger(maxJobs) || maxJobs < 1 || maxJobs > 50) {
+      throw new Error('--max must be an integer between 1 and 50');
+    }
+    return { command, maxJobs };
+  }
+  if (command !== 'once') throw new Error(`unknown command: ${command}`);
   return {
     command,
     keyword: requiredFlag(values.keyword, '--keyword'),
@@ -44,13 +56,44 @@ async function runOnce(args) {
   return exitCodeForResult(result);
 }
 
-async function runWorker() {
+function repositoryFromEnv() {
   const url = requiredFlag(process.env.SUPABASE_URL, 'SUPABASE_URL');
   const serviceRoleKey = requiredFlag(process.env.SUPABASE_SERVICE_ROLE_KEY, 'SUPABASE_SERVICE_ROLE_KEY');
+  return new SupabaseRankRepository({ url, serviceRoleKey });
+}
+
+export async function drainQueue({
+  repository,
+  collector,
+  maxJobs = 10,
+  delayMs = 1500,
+  runOneImpl = runOne,
+  sleepImpl = sleep,
+}) {
+  let processed = 0;
+  while (processed < maxJobs) {
+    const state = await runOneImpl({ repository, collector, now: new Date() });
+    if (state === 'idle') break;
+    processed += 1;
+    if (processed < maxJobs && delayMs > 0) await sleepImpl(delayMs);
+  }
+  return processed;
+}
+
+async function runDrain(args) {
+  const repository = repositoryFromEnv();
+  const collector = new NaverMapCollector();
+  const delayMs = Number.parseInt(process.env.RANK_WORKER_DELAY_MS || '1500', 10);
+  const processed = await drainQueue({ repository, collector, maxJobs: args.maxJobs, delayMs });
+  process.stdout.write(`${JSON.stringify({ status: 'DRAINED', processed })}\n`);
+  return 0;
+}
+
+async function runWorker() {
+  const repository = repositoryFromEnv();
+  const collector = new NaverMapCollector();
   const idleMs = Number.parseInt(process.env.RANK_WORKER_IDLE_MS || '5000', 10);
   const delayMs = Number.parseInt(process.env.RANK_WORKER_DELAY_MS || '1500', 10);
-  const repository = new SupabaseRankRepository({ url, serviceRoleKey });
-  const collector = new NaverMapCollector();
   let stopping = false;
 
   const requestStop = () => { stopping = true; };
@@ -67,7 +110,9 @@ async function runWorker() {
 
 export async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
-  return args.command === 'once' ? runOnce(args) : runWorker();
+  if (args.command === 'once') return runOnce(args);
+  if (args.command === 'drain') return runDrain(args);
+  return runWorker();
 }
 
 const invokedDirectly = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
