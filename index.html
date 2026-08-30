@@ -2,9 +2,10 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#f5f6ff" />
   <title>PLANKING | 네이버 플레이스 순위 추적</title>
-  <meta name="description" content="키워드와 네이버 플레이스 MID를 등록하고 실제 노출 순위와 날짜별 변화를 추적합니다." />
+  <meta name="description" content="네이버 플레이스 순위와 리뷰·저장 지표의 날짜별 변화를 한눈에 추적합니다." />
   <link rel="stylesheet" href="./styles.css" />
   <link rel="stylesheet" href="./manage.css" />
 </head>
@@ -12,22 +13,24 @@
   <main class="shell">
     <header class="topbar">
       <div class="brand-lockup">
-        <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
-        <div>
-          <p class="eyebrow">PLANKING · PLACE RANK INTELLIGENCE</p>
-          <h1>플레이스 순위를 <span>매일 기록합니다.</span></h1>
-          <p class="lead">키워드와 플레이스를 등록하면 실제 네이버 지도 노출 순위를 최대 300위까지 추적하고, 실패와 300위 밖을 정확히 구분합니다.</p>
+        <a class="brand-logo" href="./" aria-label="PLANKING 홈">
+          <img src="./assets/planking-logo.png" alt="PLANKING" />
+        </a>
+        <div class="brand-copy">
+          <p class="eyebrow">PLACE RANK INTELLIGENCE</p>
+          <h1>플레이스의 변화를<br><span>오늘 기준으로 읽습니다.</span></h1>
+          <p class="lead">검색 순위와 영수증 리뷰·블로그 리뷰·저장 변화를 함께 기록해, 지금 무엇이 움직이고 있는지 빠르게 확인합니다.</p>
         </div>
       </div>
-      <button id="refreshButton" class="button button-ghost" type="button" aria-label="순위 현황 새로고침">
-        <span class="refresh-icon">↻</span> 새로고침
+      <button id="refreshButton" class="button button-ghost refresh-button" type="button" aria-label="순위 현황 새로고침">
+        <span class="refresh-icon" aria-hidden="true">↻</span><span class="refresh-label">새로고침</span>
       </button>
     </header>
 
     <section class="register-card" aria-labelledby="registerTitle">
       <div class="section-heading compact">
         <div>
-          <span class="section-kicker">ADD TRACKING</span>
+          <span class="section-kicker">TRACK A PLACE</span>
           <h2 id="registerTitle">순위 추적 등록</h2>
         </div>
         <span class="secure-chip">서버 전용 수집</span>
@@ -36,21 +39,21 @@
       <form id="rankForm" class="rank-form">
         <label>
           <span>키워드</span>
-          <input id="keywordInput" name="keyword" placeholder="예: 경성대맛집" autocomplete="off" required />
+          <input id="keywordInput" name="keyword" autocomplete="off" required />
         </label>
         <label>
           <span>플레이스 MID 또는 네이버 URL</span>
-          <input id="midInput" name="mid" placeholder="예: 1340244014" autocomplete="off" required />
+          <input id="midInput" name="mid" inputmode="url" autocomplete="off" required />
         </label>
         <label>
           <span>업체명 <em>선택</em></span>
-          <input id="placeNameInput" name="placeName" placeholder="예: 태봉곱창 부경대 본점" autocomplete="off" />
+          <input id="placeNameInput" name="placeName" autocomplete="off" />
         </label>
         <button id="submitButton" class="button button-primary" type="submit">추적 시작</button>
       </form>
       <div class="form-foot">
         <p id="formStatus" class="status" role="status"></p>
-        <p class="helper">MID는 숫자 그대로 입력하거나 네이버 플레이스 URL을 붙여넣어도 됩니다.</p>
+        <p class="helper">MID 숫자 또는 네이버 플레이스 URL을 그대로 붙여넣을 수 있습니다.</p>
       </div>
     </section>
 
@@ -58,23 +61,23 @@
       <article class="metric-card"><span>추적 키워드</span><strong id="metricTotal">0</strong><small>활성 슬롯</small></article>
       <article class="metric-card"><span>정상 측정</span><strong id="metricMeasured">0</strong><small>순위 또는 300+</small></article>
       <article class="metric-card"><span>조회 진행</span><strong id="metricPending">0</strong><small>대기 · 수집 중</small></article>
-      <article class="metric-card"><span>확인 필요</span><strong id="metricIssues">0</strong><small>불완전 · 차단 · 지연 · 실패</small></article>
+      <article class="metric-card"><span>확인 필요</span><strong id="metricIssues">0</strong><small>불완전 · 제한 · 지연 · 실패</small></article>
     </section>
 
     <section class="tracker-section" aria-labelledby="trackerTitle">
-      <div class="section-heading">
+      <div class="section-heading tracker-heading">
         <div>
           <span class="section-kicker">TRACKING BOARD</span>
           <h2 id="trackerTitle">순위 현황</h2>
-          <p>키워드 카드를 누르면 누적 순위 그래프와 날짜별 기록을 볼 수 있습니다.</p>
+          <p>카드에서 오늘 기준 변화량을 보고, 누르면 순위와 플레이스 지표의 누적 그래프를 확인할 수 있습니다.</p>
         </div>
         <div class="legend" aria-label="상태 설명">
           <span><i class="dot good"></i>정상</span><span><i class="dot waiting"></i>조회 중</span><span><i class="dot issue"></i>확인 필요</span>
         </div>
       </div>
 
-      <div id="loadingState" class="state-card"><div class="spinner" aria-hidden="true"></div><strong>순위 현황을 불러오는 중입니다.</strong><span>Supabase의 최신 기록을 확인하고 있습니다.</span></div>
-      <div id="emptyState" class="state-card is-hidden"><div class="empty-icon">＋</div><strong>아직 추적 중인 키워드가 없습니다.</strong><span>위에서 첫 키워드와 플레이스를 등록해 보세요.</span></div>
+      <div id="loadingState" class="state-card"><div class="spinner" aria-hidden="true"></div><strong>순위 현황을 불러오는 중입니다.</strong><span>최신 순위와 플레이스 지표를 확인하고 있습니다.</span></div>
+      <div id="emptyState" class="state-card is-hidden"><div class="empty-icon">＋</div><strong>아직 추적 중인 키워드가 없습니다.</strong><span>위 등록 영역에서 첫 키워드와 플레이스를 추가하세요.</span></div>
       <div id="errorState" class="state-card error is-hidden"><div class="empty-icon">!</div><strong>순위 현황을 불러오지 못했습니다.</strong><span id="errorMessage">잠시 후 다시 시도해 주세요.</span></div>
       <div id="slotGrid" class="slot-grid" aria-live="polite"></div>
     </section>
@@ -82,14 +85,14 @@
     <footer class="footer-note">
       <strong>PLANKING 측정 기준</strong>
       <span>비로그인 데스크톱 네이버 지도 · 광고 제외 오가닉 순위 · 최대 300위</span>
-      <span><b>300+</b>는 300위까지 정상 탐색 후 미발견인 경우에만 표시합니다. 차단·시간초과·오류는 별도 상태로 남습니다.</span>
+      <span><b>300+</b>는 300위까지 정상 탐색 후 미발견인 경우에만 표시합니다. 불완전·차단·시간초과·오류는 별도 상태입니다.</span>
     </footer>
   </main>
 
   <div id="historyModal" class="modal-backdrop is-hidden" role="dialog" aria-modal="true" aria-labelledby="historyTitle">
     <section class="modal-panel history-panel">
       <header class="modal-head">
-        <div><span class="section-kicker">RANK HISTORY</span><h2 id="historyTitle">누적 순위</h2><p id="historySubtitle">키워드 이력을 불러오는 중입니다.</p></div>
+        <div><span class="section-kicker">PLACE HISTORY</span><h2 id="historyTitle">누적 변화</h2><p id="historySubtitle">데이터를 불러오는 중입니다.</p></div>
         <button id="historyCloseButton" class="icon-button" type="button" aria-label="닫기">×</button>
       </header>
       <div class="history-toolbar">
@@ -101,18 +104,40 @@
         </div>
         <button id="historyDeleteButton" class="button button-danger-soft" type="button">키워드 삭제</button>
       </div>
-      <div id="historyLoading" class="history-loading">누적 순위 데이터를 불러오는 중입니다.</div>
+      <div id="historyLoading" class="history-loading">누적 데이터를 불러오는 중입니다.</div>
       <div id="historyContent" class="is-hidden">
         <div class="history-summary-grid">
           <article><span>현재 순위</span><strong id="historyLatest">—</strong></article>
-          <article><span>최고 순위</span><strong id="historyBest">—</strong></article>
-          <article><span>최근 변동</span><strong id="historyChange">—</strong></article>
-          <article><span>누적 기록</span><strong id="historyCount">0일</strong></article>
+          <article><span>영수증 리뷰</span><strong id="historyVisitorLatest">—</strong></article>
+          <article><span>블로그 리뷰</span><strong id="historyBlogLatest">—</strong></article>
+          <article><span>저장</span><strong id="historySaveLatest">—</strong></article>
         </div>
-        <div class="rank-chart-card">
-          <div class="chart-axis-labels"><span>1위</span><span>100</span><span>200</span><span>300+</span></div>
-          <div id="historyChart" class="rank-chart" aria-label="날짜별 순위 그래프"></div>
+
+        <div class="chart-stack">
+          <section class="chart-section rank-chart-section" aria-labelledby="rankChartTitle">
+            <div class="chart-head"><div><span>순위</span><h3 id="rankChartTitle">검색 순위 변화</h3></div><small>낮은 숫자일수록 상위</small></div>
+            <div class="rank-chart-card">
+              <div class="chart-axis-labels"><span>1위</span><span>100</span><span>200</span><span>300+</span></div>
+              <div id="historyRankChart" class="rank-chart" aria-label="날짜별 순위 그래프"></div>
+            </div>
+          </section>
+
+          <section class="chart-section" aria-labelledby="visitorChartTitle">
+            <div class="chart-head"><div><span>플레이스 지표</span><h3 id="visitorChartTitle">영수증 리뷰 변화</h3></div><small>누적 리뷰 수</small></div>
+            <div id="historyVisitorChart" class="metric-chart" aria-label="날짜별 영수증 리뷰 그래프"></div>
+          </section>
+
+          <section class="chart-section" aria-labelledby="blogChartTitle">
+            <div class="chart-head"><div><span>플레이스 지표</span><h3 id="blogChartTitle">블로그 리뷰 변화</h3></div><small>누적 블로그 리뷰 수</small></div>
+            <div id="historyBlogChart" class="metric-chart" aria-label="날짜별 블로그 리뷰 그래프"></div>
+          </section>
+
+          <section class="chart-section" aria-labelledby="saveChartTitle">
+            <div class="chart-head"><div><span>플레이스 지표</span><h3 id="saveChartTitle">저장 변화</h3></div><small>네이버 원문 구간값 그대로 표시</small></div>
+            <div id="historySaveChart" class="metric-chart save-chart" aria-label="날짜별 저장 변화 그래프"></div>
+          </section>
         </div>
+
         <div class="history-table-wrap">
           <table class="history-table">
             <thead><tr><th>날짜</th><th>순위</th><th>상태</th><th>측정 시각</th></tr></thead>
