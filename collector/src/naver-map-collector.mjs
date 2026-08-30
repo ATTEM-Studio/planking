@@ -1,4 +1,10 @@
-import { extractFirstPageItems, extractGraphqlItems, extractPlaceMetrics, normalizeOrganicItems } from './normalize.mjs';
+import {
+  extractFirstPageItems,
+  extractGraphqlItems,
+  extractPlaceItemByMid,
+  extractPlaceMetrics,
+  normalizeOrganicItems,
+} from './normalize.mjs';
 import { findRankAcrossPages } from './rank-engine.mjs';
 import { assertRankResult } from './types.mjs';
 
@@ -76,11 +82,91 @@ function attachPlaceMetrics(result, targetMid, pages) {
   return result;
 }
 
+function shouldEnrichSaveCount(result) {
+  const metrics = result?.placeMetrics;
+  if (!metrics || metrics.saveCountRaw !== null) return false;
+  return metrics.visitorReviewCount !== null || metrics.blogReviewCount !== null;
+}
+
+function mergePlaceMetrics(base, rich) {
+  return {
+    visitorReviewCount: rich?.visitorReviewCount ?? base?.visitorReviewCount ?? null,
+    blogReviewCount: rich?.blogReviewCount ?? base?.blogReviewCount ?? null,
+    saveCountRaw: rich?.saveCountRaw ?? base?.saveCountRaw ?? null,
+  };
+}
+
+async function enrichPlaceMetricsFromNaverSearch({
+  context,
+  keyword,
+  targetMid,
+  result,
+  timeoutMs,
+}) {
+  if (!shouldEnrichSaveCount(result)) return result;
+
+  let metricsPage;
+  let richMetrics = null;
+  try {
+    metricsPage = await context.newPage();
+    metricsPage.on('response', async response => {
+      try {
+        const status = typeof response.status === 'function' ? response.status() : 0;
+        if (status === 429) return;
+        const url = typeof response.url === 'function' ? response.url() : '';
+        if (!url.includes(GRAPHQL_MARKER)) return;
+        const payload = await response.json();
+        const rawItem = extractPlaceItemByMid(payload, targetMid);
+        if (!rawItem) return;
+        const candidate = extractPlaceMetrics(rawItem);
+        if (Object.values(candidate).some(value => value !== null)) {
+          richMetrics = mergePlaceMetrics(richMetrics, candidate);
+        }
+      } catch {
+        // Metric enrichment is best-effort and must never change rank status.
+      }
+    });
+
+    await metricsPage.goto(
+      `https://search.naver.com/search.naver?where=nexearch&query=${encodeURIComponent(keyword)}`,
+      { waitUntil: 'domcontentloaded', timeout: timeoutMs },
+    );
+
+    const started = Date.now();
+    while (richMetrics?.saveCountRaw === null || richMetrics?.saveCountRaw === undefined) {
+      if (Date.now() - started >= timeoutMs) break;
+      if (typeof metricsPage.waitForTimeout === 'function') {
+        await metricsPage.waitForTimeout(25);
+      } else {
+        await new Promise(resolve => setTimeout(resolve, 25));
+      }
+    }
+
+    if (!richMetrics) return result;
+    return assertRankResult({
+      ...result,
+      placeMetrics: mergePlaceMetrics(result.placeMetrics, richMetrics),
+    });
+  } catch {
+    return result;
+  } finally {
+    if (metricsPage && typeof metricsPage.close === 'function') {
+      await metricsPage.close().catch(() => {});
+    }
+  }
+}
+
 export class NaverMapCollector {
-  constructor({ browserFactory = defaultBrowserFactory, timeoutMs = 15000, pageDelayMs = 600 } = {}) {
+  constructor({
+    browserFactory = defaultBrowserFactory,
+    timeoutMs = 15000,
+    pageDelayMs = 600,
+    metricEnrichmentTimeoutMs = 3000,
+  } = {}) {
     this.browserFactory = browserFactory;
     this.timeoutMs = timeoutMs;
     this.pageDelayMs = pageDelayMs;
+    this.metricEnrichmentTimeoutMs = metricEnrichmentTimeoutMs;
   }
 
   async collect({ keyword, targetMid, maxRank = 300 }) {
@@ -113,6 +199,17 @@ export class NaverMapCollector {
         await new Promise(resolve => setTimeout(resolve, 20));
       }
       return capture[kind][previousCount];
+    };
+
+    const finalizeFound = async found => {
+      const withBaseMetrics = attachPlaceMetrics(found, cleanMid, pages);
+      return enrichPlaceMetricsFromNaverSearch({
+        context,
+        keyword: cleanKeyword,
+        targetMid: cleanMid,
+        result: withBaseMetrics,
+        timeoutMs: this.metricEnrichmentTimeoutMs,
+      });
     };
 
     try {
@@ -152,7 +249,7 @@ export class NaverMapCollector {
 
       pages.push(await waitForCapture('first', firstBefore));
       let found = tryCurrentRank(cleanMid, pages, maxRank);
-      if (found) return attachPlaceMetrics(found, cleanMid, pages);
+      if (found) return await finalizeFound(found);
 
       const maxPages = Math.min(6, Math.ceil(maxRank / 50));
       for (let pageNumber = 2; pageNumber <= maxPages; pageNumber += 1) {
@@ -175,11 +272,11 @@ export class NaverMapCollector {
 
         pages.push(await waitForCapture('graphql', graphBefore));
         found = tryCurrentRank(cleanMid, pages, maxRank);
-        if (found) return attachPlaceMetrics(found, cleanMid, pages);
+        if (found) return await finalizeFound(found);
       }
 
       found = tryCurrentRank(cleanMid, pages, maxRank);
-      return found ? attachPlaceMetrics(found, cleanMid, pages) : incompleteResult(pages, maxRank);
+      return found ? await finalizeFound(found) : incompleteResult(pages, maxRank);
     } catch (error) {
       if (error?.code === 'BLOCKED') {
         return errorResult('BLOCKED', pages, 'BLOCKED', String(error.message ?? 'Naver blocked request'));
