@@ -29,7 +29,7 @@ function makeBrowser() {
           async goto() {
             await emit(handlers, new FakeResponse(
               'https://map.naver.com/p/api/search/allSearch?query=x',
-              { result: { place: { list: [{ id: 'target', name: 'Target', placeReviewCount: 635, reviewCount: 31 }] } } },
+              { result: { place: { list: [{ id: 'target', name: 'Target Place', placeReviewCount: 635, reviewCount: 31 }] } } },
             ));
           },
           async content() { return '<html></html>'; },
@@ -43,18 +43,21 @@ function makeBrowser() {
       return {
         on(event, handler) { if (event === 'response') handlers.push(handler); },
         async goto(url) {
-          assert.match(url, /^https:\/\/search\.naver\.com\/search\.naver\?/);
+          const parsed = new URL(url);
+          assert.equal(parsed.hostname, 'search.naver.com');
+          assert.equal(parsed.searchParams.get('query'), 'Target Place');
           await emit(handlers, new FakeResponse(
-            'https://pcmap-api.place.naver.com/graphql',
+            'https://p-api.place.naver.com/graphql',
             [{ data: { restaurants: { businesses: { items: [{
               id: 'target',
-              name: 'Target',
+              name: 'Target Place',
               visitorReviewCount: 635,
               blogCafeReviewCount: 31,
               saveCount: '87,000+',
             }] } } } }],
           ));
         },
+        async waitForTimeout() {},
         async close() {},
       };
     },
@@ -66,7 +69,7 @@ function makeBrowser() {
   };
 }
 
-test('enriches FOUND result with saveCount from Naver getRestaurants GraphQL', async () => {
+test('enriches FOUND result with saveCount from exact place-name getRestaurants GraphQL', async () => {
   const collector = new NaverMapCollector({
     browserFactory: async () => makeBrowser(),
     pageDelayMs: 0,
