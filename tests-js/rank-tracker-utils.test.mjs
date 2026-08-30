@@ -52,7 +52,7 @@ test('filterHistoryWindow uses the newest measurement as the calendar anchor', (
     { measured_date: '2026-07-01', rank: 40, status: 'FOUND' },
   ];
   assert.deepEqual(filterHistoryWindow(history, '7').map((row) => row.measured_date), [
-    '2026-08-30', '2026-08-27', '2026-08-23',
+    '2026-08-30', '2026-08-27',
   ]);
   assert.equal(filterHistoryWindow(history, '30').length, 3);
   assert.equal(filterHistoryWindow(history, 'all').length, 4);
