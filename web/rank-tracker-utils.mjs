@@ -86,10 +86,15 @@ export function metricSnapshotForDate(history, date) {
   return (Array.isArray(history) ? history : []).find(row => String(row?.measured_date ?? '') === target) ?? null;
 }
 
+function hasNumericMetric(value) {
+  if (value === undefined || value === null || value === '') return false;
+  return Number.isFinite(Number(value));
+}
+
 function numericMetricDelta(current, previous, field) {
   const to = current?.[field];
   const from = previous?.[field];
-  if (!Number.isFinite(Number(to)) || !Number.isFinite(Number(from))) return { kind: 'unavailable' };
+  if (!hasNumericMetric(to) || !hasNumericMetric(from)) return { kind: 'unavailable' };
   return { kind: 'number', delta: Number(to) - Number(from), from: Number(from), to: Number(to) };
 }
 
@@ -125,7 +130,7 @@ export function buildMetricWindows(history, today) {
 export function buildMetricChartPoints(history, field, width = 760, height = 220) {
   if (field === 'save_count_raw') return [];
   const rows = [...(Array.isArray(history) ? history : [])]
-    .filter(row => Number.isFinite(Number(row?.[field])))
+    .filter(row => hasNumericMetric(row?.[field]))
     .sort((a, b) => String(a.measured_date).localeCompare(String(b.measured_date)));
   if (!rows.length) return [];
   const values = rows.map(row => Number(row[field]));
