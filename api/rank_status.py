@@ -18,7 +18,7 @@ def _supabase_headers(key: str) -> dict[str, str]:
     return headers
 
 
-def _normalize_slot(row: dict[str, Any]) -> dict[str, Any]:
+def _normalize_slot(row: dict[str, Any], metrics: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     jobs = row.get("rank_jobs") if isinstance(row.get("rank_jobs"), list) else []
     history = row.get("rank_history") if isinstance(row.get("rank_history"), list) else []
     latest_job = jobs[0] if jobs else None
@@ -31,6 +31,7 @@ def _normalize_slot(row: dict[str, Any]) -> dict[str, Any]:
         "createdAt": row.get("created_at"),
         "latestJob": latest_job,
         "history": history,
+        "placeMetrics": metrics or [],
     }
 
 
@@ -44,6 +45,16 @@ class SupabaseRankStatusClient:
             raise ValueError("SUPABASE_SERVICE_ROLE_KEY is required")
         self.opener = opener
         self.timeout = timeout
+
+    def _get(self, path: str) -> Any:
+        request = Request(
+            f"{self.url}{path}",
+            method="GET",
+            headers=_supabase_headers(self.service_role_key),
+        )
+        with self.opener(request, timeout=self.timeout) as response:
+            raw = response.read()
+        return json.loads(raw.decode("utf-8")) if raw else []
 
     def list_slots(self) -> list[dict[str, Any]]:
         select = (
@@ -60,17 +71,35 @@ class SupabaseRankStatusClient:
             ("rank_history.order", "measured_date.desc"),
             ("rank_history.limit", "30"),
         ]
-        request = Request(
-            f"{self.url}/rest/v1/rank_slots?{urlencode(params)}",
-            method="GET",
-            headers=_supabase_headers(self.service_role_key),
-        )
-        with self.opener(request, timeout=self.timeout) as response:
-            raw = response.read()
-        rows = json.loads(raw.decode("utf-8")) if raw else []
+        rows = self._get(f"/rest/v1/rank_slots?{urlencode(params)}")
         if not isinstance(rows, list):
             raise RuntimeError("Supabase rank slot response must be a list")
-        return [_normalize_slot(row) for row in rows if isinstance(row, dict)]
+        slot_rows = [row for row in rows if isinstance(row, dict)]
+        if not slot_rows:
+            return []
+
+        mids = sorted({str(row.get("target_mid") or "").strip() for row in slot_rows if str(row.get("target_mid") or "").strip()})
+        metrics_by_mid: dict[str, list[dict[str, Any]]] = {mid: [] for mid in mids}
+        if mids:
+            metrics_params = [
+                ("select", "target_mid,measured_date,visitor_review_count,blog_review_count,save_count_raw,measured_at"),
+                ("target_mid", f"in.({','.join(mids)})"),
+                ("order", "measured_date.desc"),
+            ]
+            metric_rows = self._get(f"/rest/v1/place_metrics_history?{urlencode(metrics_params)}")
+            if not isinstance(metric_rows, list):
+                raise RuntimeError("Supabase place metrics response must be a list")
+            for metric in metric_rows:
+                if not isinstance(metric, dict):
+                    continue
+                mid = str(metric.get("target_mid") or "")
+                if mid in metrics_by_mid and len(metrics_by_mid[mid]) < 31:
+                    metrics_by_mid[mid].append(metric)
+
+        return [
+            _normalize_slot(row, metrics_by_mid.get(str(row.get("target_mid") or ""), []))
+            for row in slot_rows
+        ]
 
 
 def _client_from_env() -> SupabaseRankStatusClient:
