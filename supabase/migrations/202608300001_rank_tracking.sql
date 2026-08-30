@@ -37,6 +37,21 @@ create table if not exists public.rank_history (
   constraint rank_history_slot_date_key unique (slot_id, measured_date)
 );
 
+alter table public.rank_slots enable row level security;
+alter table public.rank_jobs enable row level security;
+alter table public.rank_history enable row level security;
+
+revoke all on table public.rank_slots from anon;
+revoke all on table public.rank_slots from authenticated;
+revoke all on table public.rank_jobs from anon;
+revoke all on table public.rank_jobs from authenticated;
+revoke all on table public.rank_history from anon;
+revoke all on table public.rank_history from authenticated;
+
+grant all on table public.rank_slots to service_role;
+grant all on table public.rank_jobs to service_role;
+grant all on table public.rank_history to service_role;
+
 create index if not exists rank_jobs_status_requested_at_idx
   on public.rank_jobs(status, requested_at);
 
