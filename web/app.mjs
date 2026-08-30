@@ -1,9 +1,11 @@
 import {
+  buildMetricChartPoints,
+  buildMetricWindows,
   buildRankChartPoints,
-  filterHistoryWindow,
   formatRankResult,
   historySummary,
   jobLabel,
+  metricSnapshotForDate,
   parseTargetMid,
   rankDelta,
 } from './rank-tracker-utils.mjs';
@@ -11,6 +13,7 @@ import {
 const $ = (id) => document.getElementById(id);
 const pendingStatuses = new Set(['PENDING', 'RUNNING']);
 const issueStatuses = new Set(['INCOMPLETE', 'BLOCKED', 'TIMEOUT', 'FAILED']);
+const metricPeriodBySlot = new Map();
 let slots = [];
 let refreshTimer = null;
 let activeDetail = null;
@@ -23,6 +26,14 @@ function escapeHtml(value) {
   })[char]);
 }
 
+function kstToday() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
 function setFormStatus(message = '', error = false) {
   const node = $('formStatus');
   node.textContent = message;
@@ -31,16 +42,16 @@ function setFormStatus(message = '', error = false) {
 
 function formatDate(value) {
   if (!value) return '—';
-  const date = new Date(value.length === 10 ? `${value}T00:00:00` : value);
+  const date = new Date(`${String(value).slice(0, 10)}T00:00:00Z`);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat('ko-KR', { month: '2-digit', day: '2-digit' }).format(date);
+  return new Intl.DateTimeFormat('ko-KR', { month: '2-digit', day: '2-digit', timeZone: 'UTC' }).format(date);
 }
 
 function formatFullDate(value) {
   if (!value) return '—';
-  const date = new Date(`${value}T00:00:00`);
+  const date = new Date(`${String(value).slice(0, 10)}T00:00:00Z`);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+  return new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'UTC' }).format(date);
 }
 
 function formatTime(value) {
@@ -48,8 +59,13 @@ function formatTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '측정 전';
   return new Intl.DateTimeFormat('ko-KR', {
-    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+    timeZone: 'Asia/Seoul', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
   }).format(date);
+}
+
+function formatNumber(value) {
+  if (!Number.isFinite(Number(value))) return '—';
+  return new Intl.NumberFormat('ko-KR').format(Number(value));
 }
 
 function statusTone(status) {
@@ -66,14 +82,8 @@ function deltaMarkup(history) {
   return `<span class="rank-delta ${delta.direction}">${arrow} ${delta.amount}</span>`;
 }
 
-function deltaText(delta) {
-  if (!delta) return '—';
-  if (delta.direction === 'same') return '변동 없음';
-  return `${delta.direction === 'up' ? '↑' : '↓'} ${delta.amount}`;
-}
-
 function historyMarkup(history = []) {
-  if (!history.length) return '<div class="history-empty">첫 측정이 완료되면 날짜별 이력이 표시됩니다.</div>';
+  if (!history.length) return '<div class="history-empty">첫 측정이 완료되면 날짜별 순위 이력이 표시됩니다.</div>';
   return `
     <div class="history-strip">
       ${history.slice(0, 7).map((row) => `
@@ -84,7 +94,62 @@ function historyMarkup(history = []) {
     </div>`;
 }
 
-function slotMarkup(slot) {
+function metricPeriodTabsMarkup(activePeriod) {
+  return `
+    <div class="metric-period-tabs" role="group" aria-label="플레이스 지표 비교 기간">
+      <button type="button" data-metric-period="1" class="${activePeriod === '1' ? 'is-active' : ''}">1일</button>
+      <button type="button" data-metric-period="7" class="${activePeriod === '7' ? 'is-active' : ''}">7일</button>
+      <button type="button" data-metric-period="30" class="${activePeriod === '30' ? 'is-active' : ''}">30일</button>
+    </div>`;
+}
+
+function numericChangeMarkup(change) {
+  if (!change || change.kind !== 'number') return '<span class="metric-change">—</span>';
+  if (change.delta === 0) return '<span class="metric-change">변동 없음</span>';
+  const positive = change.delta > 0;
+  return `<span class="metric-change ${positive ? 'positive' : 'negative'}">${positive ? '+' : ''}${escapeHtml(formatNumber(change.delta))}</span>`;
+}
+
+function saveChangeMarkup(change) {
+  if (!change || change.kind === 'unavailable') return '<span class="metric-change">—</span>';
+  if (change.kind === 'same') return '<span class="metric-change">변동 없음</span>';
+  return `<span class="metric-change raw-change">${escapeHtml(change.from)} → ${escapeHtml(change.to)}</span>`;
+}
+
+function metricPanelMarkup(slot) {
+  const period = metricPeriodBySlot.get(slot.id) || '1';
+  const windows = buildMetricWindows(slot.placeMetrics || [], kstToday());
+  const current = windows.current;
+  const changes = windows.periods[period];
+
+  return `
+    <section class="place-metrics-panel" aria-label="플레이스 지표 변화">
+      <div class="place-metrics-head">
+        <div><span>오늘 기준</span><strong>플레이스 지표 변화</strong></div>
+        ${metricPeriodTabsMarkup(period)}
+      </div>
+      ${current ? `
+        <div class="place-metric-grid">
+          <div class="place-metric-item">
+            <span>영수증 리뷰</span>
+            <strong>${escapeHtml(formatNumber(current.visitor_review_count))}</strong>
+            ${numericChangeMarkup(changes?.visitorReviews)}
+          </div>
+          <div class="place-metric-item">
+            <span>블로그 리뷰</span>
+            <strong>${escapeHtml(formatNumber(current.blog_review_count))}</strong>
+            ${numericChangeMarkup(changes?.blogReviews)}
+          </div>
+          <div class="place-metric-item">
+            <span>저장</span>
+            <strong>${escapeHtml(current.save_count_raw ?? '—')}</strong>
+            ${saveChangeMarkup(changes?.save)}
+          </div>
+        </div>` : '<div class="metrics-unavailable">오늘 플레이스 지표는 아직 수집되지 않았습니다.</div>'}
+    </section>`;
+}
+
+function slotMarkup(slot, index = 0) {
   const history = Array.isArray(slot.history) ? slot.history : [];
   const latest = history[0] || null;
   const job = slot.latestJob || null;
@@ -94,7 +159,7 @@ function slotMarkup(slot) {
   const placeLabel = slot.placeName || `MID ${slot.targetMid}`;
 
   return `
-    <article class="slot-card is-clickable" data-slot-id="${escapeHtml(slot.id)}" role="button" tabindex="0" aria-label="${escapeHtml(slot.keyword)} 누적 순위 보기">
+    <article class="slot-card is-clickable" style="--card-index:${index}" data-slot-id="${escapeHtml(slot.id)}" role="button" tabindex="0" aria-label="${escapeHtml(slot.keyword)} 누적 변화 보기">
       <div class="slot-card-head">
         <div class="slot-identity">
           <div class="slot-keyword-row">
@@ -111,16 +176,18 @@ function slotMarkup(slot) {
         </div>
       </div>
 
+      ${metricPanelMarkup(slot)}
+
       <div class="slot-meta">
         <span><b>최근 측정</b>${escapeHtml(formatTime(latestMeasuredAt))}</span>
-        <span><b>기록</b>${history.length}일</span>
-        <span class="history-hint">누적 보기 →</span>
+        <span><b>순위 기록</b>${history.length}일</span>
+        <span class="history-hint">상세 그래프 →</span>
         <button class="button button-mini recheck-button" type="button" data-slot-id="${escapeHtml(slot.id)}" ${busy ? 'disabled' : ''}>${busy ? '조회 중…' : '다시 조회'}</button>
         <button class="button button-mini delete-button" type="button" data-slot-id="${escapeHtml(slot.id)}" ${busy ? 'disabled' : ''}>삭제</button>
       </div>
 
       ${historyMarkup(history)}
-      ${issueStatuses.has(status) ? `<p class="issue-copy">최근 조회가 완료되지 않았습니다. 기존 정상 순위 기록은 유지됩니다.${job?.error_code ? ` · ${escapeHtml(job.error_code)}` : ''}</p>` : ''}
+      ${issueStatuses.has(status) ? `<p class="issue-copy">최근 조회가 완료되지 않았습니다. 기존 정상 순위와 플레이스 지표 기록은 유지됩니다.${job?.error_code ? ` · ${escapeHtml(job.error_code)}` : ''}</p>` : ''}
     </article>`;
 }
 
@@ -131,13 +198,7 @@ function renderMetrics() {
   $('metricIssues').textContent = slots.filter((slot) => issueStatuses.has(slot.latestJob?.status)).length;
 }
 
-function renderSlots() {
-  $('loadingState').classList.add('is-hidden');
-  $('errorState').classList.add('is-hidden');
-  $('emptyState').classList.toggle('is-hidden', slots.length !== 0);
-  $('slotGrid').innerHTML = slots.map(slotMarkup).join('');
-  renderMetrics();
-
+function bindSlotInteractions() {
   document.querySelectorAll('.slot-card').forEach((card) => {
     const open = () => openHistory(card.dataset.slotId);
     card.addEventListener('click', (event) => {
@@ -149,6 +210,16 @@ function renderSlots() {
         event.preventDefault();
         open();
       }
+    });
+  });
+
+  document.querySelectorAll('[data-metric-period]').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const card = button.closest('.slot-card');
+      if (!card) return;
+      metricPeriodBySlot.set(card.dataset.slotId, button.dataset.metricPeriod);
+      renderSlots();
     });
   });
 
@@ -172,7 +243,15 @@ function renderSlots() {
       if (slot) openDeleteModal(slot);
     });
   });
+}
 
+function renderSlots() {
+  $('loadingState').classList.add('is-hidden');
+  $('errorState').classList.add('is-hidden');
+  $('emptyState').classList.toggle('is-hidden', slots.length !== 0);
+  $('slotGrid').innerHTML = slots.map(slotMarkup).join('');
+  renderMetrics();
+  bindSlotInteractions();
   scheduleAutoRefresh();
 }
 
@@ -230,14 +309,28 @@ async function queueRankRequest(keyword, targetMid, placeName, button = null) {
   }
 }
 
-function renderHistoryChart(history) {
-  const chart = $('historyChart');
+function filterRowsFromToday(rows, window) {
+  const source = Array.isArray(rows) ? rows : [];
+  if (window === 'all') return [...source];
+  const days = Number(window);
+  if (!Number.isFinite(days) || days <= 0) return [...source];
+  const end = new Date(`${kstToday()}T00:00:00Z`);
+  const start = new Date(end);
+  start.setUTCDate(start.getUTCDate() - (days - 1));
+  return source.filter(row => {
+    const date = new Date(`${row?.measured_date}T00:00:00Z`);
+    return !Number.isNaN(date.getTime()) && date >= start && date <= end;
+  });
+}
+
+function renderRankChart(history) {
+  const chart = $('historyRankChart');
   if (!history.length) {
     chart.innerHTML = '<div class="chart-empty">선택한 기간에 순위 기록이 없습니다.</div>';
     return;
   }
   const width = 760;
-  const height = 260;
+  const height = 250;
   const points = buildRankChartPoints(history, width, height);
   const polyline = points.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ');
   const labelStep = Math.max(1, Math.ceil(points.length / 5));
@@ -245,38 +338,100 @@ function renderHistoryChart(history) {
     <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="누적 순위 변화 그래프">
       <g class="chart-grid">
         <line x1="34" y1="24" x2="726" y2="24"></line>
-        <line x1="34" y1="94.7" x2="726" y2="94.7"></line>
-        <line x1="34" y1="165.3" x2="726" y2="165.3"></line>
-        <line x1="34" y1="236" x2="726" y2="236"></line>
+        <line x1="34" y1="91" x2="726" y2="91"></line>
+        <line x1="34" y1="158" x2="726" y2="158"></line>
+        <line x1="34" y1="226" x2="726" y2="226"></line>
       </g>
       <polyline class="rank-line" points="${polyline}"></polyline>
       ${points.map((point, index) => `
         <g class="rank-point-group">
           <circle class="rank-point ${point.status === 'OUT_OF_RANGE' ? 'out' : ''}" cx="${point.x}" cy="${point.y}" r="4.5"><title>${escapeHtml(point.date)} · ${escapeHtml(point.display)}</title></circle>
-          ${(index % labelStep === 0 || index === points.length - 1) ? `<text x="${point.x}" y="254" text-anchor="middle">${escapeHtml(formatDate(point.date))}</text>` : ''}
+          ${(index % labelStep === 0 || index === points.length - 1) ? `<text x="${point.x}" y="244" text-anchor="middle">${escapeHtml(formatDate(point.date))}</text>` : ''}
         </g>`).join('')}
     </svg>`;
 }
 
+function renderNumericMetricChart(rows, field, targetId, label) {
+  const chart = $(targetId);
+  const width = 760;
+  const height = 205;
+  const points = buildMetricChartPoints(rows, field, width, height);
+  if (!points.length) {
+    chart.innerHTML = `<div class="chart-empty">선택한 기간에 ${escapeHtml(label)} 기록이 없습니다.</div>`;
+    return;
+  }
+  const polyline = points.map(point => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ');
+  const labelStep = Math.max(1, Math.ceil(points.length / 5));
+  chart.innerHTML = `
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(label)} 변화 그래프">
+      <g>
+        <line class="metric-grid" x1="34" y1="28" x2="726" y2="28"></line>
+        <line class="metric-grid" x1="34" y1="102" x2="726" y2="102"></line>
+        <line class="metric-grid" x1="34" y1="176" x2="726" y2="176"></line>
+      </g>
+      <polyline class="metric-line" points="${polyline}"></polyline>
+      ${points.map((point, index) => `
+        <g class="metric-point-group">
+          <circle class="metric-point" cx="${point.x}" cy="${point.y}" r="4.2"><title>${escapeHtml(point.date)} · ${escapeHtml(formatNumber(point.value))}</title></circle>
+          ${(index === 0 || index === points.length - 1) ? `<text class="metric-chart-value" x="${point.x}" y="${Math.max(15, point.y - 10)}" text-anchor="middle">${escapeHtml(formatNumber(point.value))}</text>` : ''}
+          ${(index % labelStep === 0 || index === points.length - 1) ? `<text x="${point.x}" y="199" text-anchor="middle">${escapeHtml(formatDate(point.date))}</text>` : ''}
+        </g>`).join('')}
+    </svg>`;
+}
+
+function renderSaveTimeline(rows) {
+  const chart = $('historySaveChart');
+  const available = [...rows]
+    .filter(row => row?.save_count_raw !== undefined && row?.save_count_raw !== null && String(row.save_count_raw) !== '')
+    .sort((a, b) => String(a.measured_date).localeCompare(String(b.measured_date)));
+  if (!available.length) {
+    chart.innerHTML = '<div class="chart-empty">선택한 기간에 저장 기록이 없습니다.</div>';
+    return;
+  }
+  const compact = available.length > 10
+    ? available.filter((_, index) => index === 0 || index === available.length - 1 || index % Math.ceil(available.length / 8) === 0)
+    : available;
+  chart.innerHTML = `
+    <div class="save-timeline" role="img" aria-label="저장 구간값 변화 타임라인">
+      <div class="save-timeline-track">
+        ${compact.map(row => `
+          <div class="save-node">
+            <div class="save-node-dot" aria-hidden="true"></div>
+            <strong title="${escapeHtml(row.save_count_raw)}">${escapeHtml(row.save_count_raw)}</strong>
+            <span>${escapeHtml(formatDate(row.measured_date))}</span>
+          </div>`).join('')}
+      </div>
+    </div>`;
+}
+
 function renderHistoryDetail() {
   if (!activeDetail) return;
-  const filtered = filterHistoryWindow(activeDetail.history || [], activeWindow);
-  const summary = historySummary(filtered);
+  const rankRows = filterRowsFromToday(activeDetail.history || [], activeWindow);
+  const metricRows = filterRowsFromToday(activeDetail.placeMetrics || [], activeWindow);
+  const summary = historySummary(rankRows);
+  const todayMetric = metricSnapshotForDate(activeDetail.placeMetrics || [], kstToday());
+
   $('historyLatest').textContent = summary.latest;
-  $('historyBest').textContent = summary.best;
-  $('historyChange').textContent = deltaText(summary.delta);
-  $('historyCount').textContent = `${summary.count}일`;
+  $('historyVisitorLatest').textContent = formatNumber(todayMetric?.visitor_review_count);
+  $('historyBlogLatest').textContent = formatNumber(todayMetric?.blog_review_count);
+  $('historySaveLatest').textContent = todayMetric?.save_count_raw ?? '—';
+
   document.querySelectorAll('[data-history-window]').forEach((button) => {
     button.classList.toggle('is-active', button.dataset.historyWindow === activeWindow);
   });
-  renderHistoryChart(filtered);
-  $('historyTableBody').innerHTML = filtered.length ? filtered.map((row) => `
+
+  renderRankChart(rankRows);
+  renderNumericMetricChart(metricRows, 'visitor_review_count', 'historyVisitorChart', '영수증 리뷰');
+  renderNumericMetricChart(metricRows, 'blog_review_count', 'historyBlogChart', '블로그 리뷰');
+  renderSaveTimeline(metricRows);
+
+  $('historyTableBody').innerHTML = rankRows.length ? rankRows.map((row) => `
     <tr>
       <td>${escapeHtml(formatFullDate(row.measured_date))}</td>
       <td><strong>${escapeHtml(formatRankResult(row))}</strong></td>
       <td>${row.status === 'OUT_OF_RANGE' ? '300위 밖' : '정상 측정'}</td>
       <td>${escapeHtml(formatTime(row.measured_at))}</td>
-    </tr>`).join('') : '<tr><td colspan="4" class="table-empty">선택한 기간에 기록이 없습니다.</td></tr>';
+    </tr>`).join('') : '<tr><td colspan="4" class="table-empty">선택한 기간에 순위 기록이 없습니다.</td></tr>';
 }
 
 async function openHistory(slotId) {
@@ -284,8 +439,9 @@ async function openHistory(slotId) {
   if (!slot) return;
   activeDetail = null;
   activeWindow = '30';
-  $('historyTitle').textContent = `${slot.keyword} 누적 순위`;
+  $('historyTitle').textContent = `${slot.keyword} 누적 변화`;
   $('historySubtitle').textContent = `${slot.placeName || `MID ${slot.targetMid}`} · 전체 기록을 불러오는 중`;
+  $('historyLoading').textContent = '순위와 플레이스 지표를 불러오는 중입니다.';
   $('historyLoading').classList.remove('is-hidden');
   $('historyContent').classList.add('is-hidden');
   $('historyModal').classList.remove('is-hidden');
@@ -294,9 +450,9 @@ async function openHistory(slotId) {
   try {
     const response = await fetch(`/api/rank_manage?slotId=${encodeURIComponent(slotId)}`, { cache: 'no-store' });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || '누적 순위를 불러오지 못했습니다.');
+    if (!response.ok) throw new Error(data.error || '누적 데이터를 불러오지 못했습니다.');
     activeDetail = data;
-    $('historyTitle').textContent = `${data.keyword} 누적 순위`;
+    $('historyTitle').textContent = `${data.keyword} 누적 변화`;
     $('historySubtitle').textContent = `${data.placeName || `MID ${data.targetMid}`} · MID ${data.targetMid}`;
     $('historyLoading').classList.add('is-hidden');
     $('historyContent').classList.remove('is-hidden');
@@ -305,7 +461,7 @@ async function openHistory(slotId) {
     $('historyDeleteButton').textContent = busy ? '조회 중 삭제 불가' : '키워드 삭제';
     renderHistoryDetail();
   } catch (error) {
-    $('historyLoading').textContent = error.message || '누적 순위를 불러오지 못했습니다.';
+    $('historyLoading').textContent = error.message || '누적 데이터를 불러오지 못했습니다.';
   }
 }
 
@@ -318,6 +474,7 @@ function closeHistoryModal() {
 function openDeleteModal(slot) {
   if (pendingStatuses.has(slot.latestJob?.status)) return;
   deleteTarget = slot;
+  $('deleteDescription').innerHTML = '삭제하면 등록 키워드와 누적 순위 기록, 조회 작업 이력이 모두 삭제되며 <strong>복구할 수 없습니다.</strong>';
   $('deleteTargetLabel').textContent = `${slot.keyword} · ${slot.placeName || `MID ${slot.targetMid}`}`;
   $('deleteModal').classList.remove('is-hidden');
   document.body.classList.add('modal-open');
@@ -379,9 +536,12 @@ $('refreshButton').addEventListener('click', async () => {
   const button = $('refreshButton');
   button.disabled = true;
   button.classList.add('is-spinning');
-  await refreshSlots();
-  button.disabled = false;
-  button.classList.remove('is-spinning');
+  try {
+    await refreshSlots();
+  } finally {
+    button.disabled = false;
+    button.classList.remove('is-spinning');
+  }
 });
 
 $('historyCloseButton').addEventListener('click', closeHistoryModal);

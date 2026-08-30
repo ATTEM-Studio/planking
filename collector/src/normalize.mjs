@@ -23,6 +23,21 @@ function isExplicitAd(item) {
   return typeof item.type === 'string' && ['ad', 'advertisement'].includes(item.type.toLowerCase());
 }
 
+function nullableCount(value) {
+  if (value === undefined || value === null || value === '') return null;
+  if (Number.isInteger(value) && value >= 0) return value;
+  const normalized = String(value).replace(/,/g, '').trim();
+  if (!/^\d+$/.test(normalized)) return null;
+  const parsed = Number(normalized);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
+function nullableRaw(value) {
+  if (value === undefined || value === null) return null;
+  const text = String(value).trim();
+  return text || null;
+}
+
 export function extractFirstPageItems(payload) {
   const list = payload?.result?.place?.list;
   return Array.isArray(list) ? list : [];
@@ -30,6 +45,19 @@ export function extractFirstPageItems(payload) {
 
 export function extractGraphqlItems(payload) {
   return findItems(payload) ?? [];
+}
+
+export function extractPlaceMetrics(rawItem) {
+  const item = rawItem && typeof rawItem === 'object' ? rawItem : {};
+  return {
+    visitorReviewCount: nullableCount(
+      item.visitorReviewCount ?? item.placeReviewCount ?? item.visitor_review_count,
+    ),
+    blogReviewCount: nullableCount(
+      item.blogCafeReviewCount ?? item.blogReviewCount ?? item.reviewCount ?? item.blog_review_count,
+    ),
+    saveCountRaw: nullableRaw(item.saveCount ?? item.save_count ?? item.saveCountRaw),
+  };
 }
 
 export function normalizeOrganicItems(items) {

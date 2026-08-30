@@ -33,6 +33,10 @@ function failedFromException(error) {
   };
 }
 
+function hasObservedMetrics(metrics) {
+  return metrics && Object.values(metrics).some(value => value !== null && value !== undefined);
+}
+
 export async function runOne({ repository, collector, now = new Date() }) {
   const rawJob = await repository.claimNextJob();
   if (!rawJob) return 'idle';
@@ -49,8 +53,12 @@ export async function runOne({ repository, collector, now = new Date() }) {
     result = assertRankResult(failedFromException(error));
   }
 
+  const measuredDate = kstDate(now);
   if (result.status === 'FOUND' || result.status === 'OUT_OF_RANGE') {
-    await repository.upsertHistory(job.slotId, kstDate(now), result);
+    await repository.upsertHistory(job.slotId, measuredDate, result);
+    if (result.status === 'FOUND' && hasObservedMetrics(result.placeMetrics)) {
+      await repository.upsertPlaceMetrics(job.targetMid, measuredDate, result.placeMetrics);
+    }
     await repository.completeJob(job.id, {
       ...result,
       status: result.status === 'FOUND' ? 'SUCCESS' : 'OUT_OF_RANGE',

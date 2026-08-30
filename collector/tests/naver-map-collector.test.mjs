@@ -81,6 +81,20 @@ test('uses allSearch network response for page 1', async () => {
   assert.deepEqual({ status: result.status, rank: result.rank }, { status: 'FOUND', rank: 1 });
 });
 
+test('FOUND includes target place metrics from the matched Naver item', async () => {
+  const browserFactory = async () => makeBrowser({
+    page1: page1Response([{
+      id: 'target', name: 'Target', visitorReviewCount: '5,498', blogCafeReviewCount: 3166, saveCount: '87,000+',
+    }]),
+  });
+  const result = await new NaverMapCollector({ browserFactory, pageDelayMs: 0 }).collect({ keyword: '하단고기집', targetMid: 'target' });
+  assert.deepEqual(result.placeMetrics, {
+    visitorReviewCount: 5498,
+    blogReviewCount: 3166,
+    saveCountRaw: '87,000+',
+  });
+});
+
 test('uses GraphQL response after page 2 click and preserves cumulative organic rank', async () => {
   const first = Array.from({ length: 50 }, (_, i) => ({ id: String(1000 + i), name: `P${i}` }));
   const browserFactory = async () => makeBrowser({
@@ -104,6 +118,7 @@ test('missing next page before 300 results is INCOMPLETE, never OUT_OF_RANGE', a
   assert.equal(result.rank, null);
   assert.equal(result.itemsScanned, 20);
   assert.equal(result.errorCode, 'INCOMPLETE_TRAVERSAL');
+  assert.equal(result.placeMetrics, undefined);
 });
 
 test('classifies captcha body as BLOCKED', async () => {

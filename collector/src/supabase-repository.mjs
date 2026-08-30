@@ -82,6 +82,21 @@ export class SupabaseRankRepository {
     });
   }
 
+  async upsertPlaceMetrics(targetMid, measuredDate, metrics) {
+    await this._request('/rest/v1/place_metrics_history?on_conflict=target_mid,measured_date', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({
+        target_mid: String(targetMid),
+        measured_date: measuredDate,
+        visitor_review_count: metrics?.visitorReviewCount ?? null,
+        blog_review_count: metrics?.blogReviewCount ?? null,
+        save_count_raw: metrics?.saveCountRaw ?? null,
+        measured_at: new Date().toISOString(),
+      }),
+    });
+  }
+
   async completeJob(jobId, result) {
     await this._request(`/rest/v1/rank_jobs?id=eq.${encodeURIComponent(jobId)}`, {
       method: 'PATCH',

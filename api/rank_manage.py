@@ -68,13 +68,24 @@ class SupabaseRankManageClient:
             history_rows = []
 
         row = slot_rows[0]
+        target_mid = str(row.get("target_mid") or "")
+        metrics_query = urlencode({
+            "target_mid": f"eq.{target_mid}",
+            "select": "target_mid,measured_date,visitor_review_count,blog_review_count,save_count_raw,measured_at",
+            "order": "measured_date.desc",
+        })
+        metric_rows = self._request(f"/rest/v1/place_metrics_history?{metrics_query}")
+        if not isinstance(metric_rows, list):
+            metric_rows = []
+
         return {
             "id": str(row.get("id") or slot_id),
             "keyword": str(row.get("keyword") or ""),
-            "targetMid": str(row.get("target_mid") or ""),
+            "targetMid": target_mid,
             "placeName": row.get("place_name"),
             "createdAt": row.get("created_at"),
             "history": history_rows,
+            "placeMetrics": metric_rows,
         }
 
     def hard_delete(self, slot_id: str) -> dict[str, Any]:

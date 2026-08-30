@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { extractFirstPageItems, extractGraphqlItems, normalizeOrganicItems } from '../src/normalize.mjs';
+import { extractFirstPageItems, extractGraphqlItems, extractPlaceMetrics, normalizeOrganicItems } from '../src/normalize.mjs';
 
 const page1 = {
   result: { place: { list: [
@@ -29,4 +29,35 @@ test('unknown rows remain organic while explicit ad indicators are excluded', ()
     { name: 'missing mid' },
   ];
   assert.deepEqual(normalizeOrganicItems(rows).map(row => row.mid), ['1']);
+});
+
+test('place metrics preserve raw save bucket while parsing review counts', () => {
+  assert.deepEqual(extractPlaceMetrics({
+    visitorReviewCount: '5,498',
+    blogCafeReviewCount: 3166,
+    saveCount: '87,000+',
+  }), {
+    visitorReviewCount: 5498,
+    blogReviewCount: 3166,
+    saveCountRaw: '87,000+',
+  });
+});
+
+test('current allSearch review fields map to visitor and blog review counts', () => {
+  assert.deepEqual(extractPlaceMetrics({
+    reviewCount: 31,
+    placeReviewCount: 635,
+  }), {
+    visitorReviewCount: 635,
+    blogReviewCount: 31,
+    saveCountRaw: null,
+  });
+});
+
+test('place metrics keep missing values null instead of fabricating zero', () => {
+  assert.deepEqual(extractPlaceMetrics({}), {
+    visitorReviewCount: null,
+    blogReviewCount: null,
+    saveCountRaw: null,
+  });
 });

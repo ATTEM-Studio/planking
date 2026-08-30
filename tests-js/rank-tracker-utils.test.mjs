@@ -1,11 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildMetricChartPoints,
+  buildMetricWindows,
   buildRankChartPoints,
   filterHistoryWindow,
   formatRankResult,
   historySummary,
   jobLabel,
+  metricSnapshotForDate,
   parseTargetMid,
   rankDelta,
 } from '../web/rank-tracker-utils.mjs';
@@ -80,4 +83,46 @@ test('historySummary returns latest, best, measured count, and change', () => {
   assert.equal(summary.best, '19위');
   assert.equal(summary.count, 3);
   assert.deepEqual(summary.delta, { direction: 'up', amount: 1 });
+});
+
+const metricsHistory = [
+  { measured_date: '2026-08-31', visitor_review_count: 2100, blog_review_count: 600, save_count_raw: '87,000+' },
+  { measured_date: '2026-08-30', visitor_review_count: 2082, blog_review_count: 590, save_count_raw: '87,000+' },
+  { measured_date: '2026-08-24', visitor_review_count: 2020, blog_review_count: 570, save_count_raw: '80,000+' },
+  { measured_date: '2026-08-01', visitor_review_count: 1800, blog_review_count: 500, save_count_raw: '70,000+' },
+];
+
+test('metricSnapshotForDate uses exact calendar dates only', () => {
+  assert.equal(metricSnapshotForDate(metricsHistory, '2026-08-30').visitor_review_count, 2082);
+  assert.equal(metricSnapshotForDate(metricsHistory, '2026-08-29'), null);
+});
+
+test('buildMetricWindows compares today with exact 1, 7, and 30 day dates', () => {
+  const windows = buildMetricWindows(metricsHistory, '2026-08-31');
+  assert.equal(windows.current.visitor_review_count, 2100);
+  assert.deepEqual(windows.periods['1'].visitorReviews, { kind: 'number', delta: 18, from: 2082, to: 2100 });
+  assert.deepEqual(windows.periods['7'].blogReviews, { kind: 'number', delta: 30, from: 570, to: 600 });
+  assert.deepEqual(windows.periods['30'].visitorReviews, { kind: 'number', delta: 300, from: 1800, to: 2100 });
+});
+
+test('buildMetricWindows preserves raw save buckets and never fabricates arithmetic', () => {
+  const windows = buildMetricWindows(metricsHistory, '2026-08-31');
+  assert.deepEqual(windows.periods['1'].save, { kind: 'same', from: '87,000+', to: '87,000+' });
+  assert.deepEqual(windows.periods['7'].save, { kind: 'changed', from: '80,000+', to: '87,000+' });
+  assert.deepEqual(windows.periods['30'].save, { kind: 'changed', from: '70,000+', to: '87,000+' });
+});
+
+test('buildMetricWindows reports unavailable when exact comparison date is missing', () => {
+  const windows = buildMetricWindows(metricsHistory.filter(row => row.measured_date !== '2026-08-24'), '2026-08-31');
+  assert.deepEqual(windows.periods['7'].visitorReviews, { kind: 'unavailable' });
+  assert.deepEqual(windows.periods['7'].save, { kind: 'unavailable' });
+});
+
+test('buildMetricChartPoints scales numeric metric histories without inventing save values', () => {
+  const points = buildMetricChartPoints(metricsHistory, 'visitor_review_count', 600, 220);
+  assert.equal(points.length, 4);
+  assert.equal(points[0].date, '2026-08-01');
+  assert.equal(points.at(-1).value, 2100);
+  assert.ok(points.at(-1).y < points[0].y);
+  assert.deepEqual(buildMetricChartPoints(metricsHistory, 'save_count_raw', 600, 220), []);
 });
