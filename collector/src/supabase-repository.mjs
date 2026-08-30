@@ -42,6 +42,15 @@ export class SupabaseRankRepository {
     return JSON.parse(text);
   }
 
+  async enqueueDailyJobs() {
+    const result = await this._request('/rest/v1/rpc/enqueue_daily_rank_jobs', {
+      method: 'POST',
+      body: '{}',
+    });
+    const value = Array.isArray(result) ? result[0] : result;
+    return Number.isFinite(Number(value)) ? Number(value) : 0;
+  }
+
   async claimNextJob() {
     const rows = await this._request('/rest/v1/rpc/claim_next_rank_job', {
       method: 'POST',
