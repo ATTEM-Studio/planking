@@ -16,6 +16,16 @@ def _required_text(payload: dict[str, Any], key: str) -> str:
     return value
 
 
+def _supabase_headers(key: str) -> dict[str, str]:
+    headers = {
+        "apikey": key,
+        "Content-Type": "application/json",
+    }
+    if key.startswith("eyJ"):
+        headers["Authorization"] = f"Bearer {key}"
+    return headers
+
+
 def process_payload(payload: dict[str, Any], client: Any) -> dict[str, str]:
     if not isinstance(payload, dict):
         raise ValueError("request body must be a JSON object")
@@ -45,16 +55,13 @@ class SupabaseRankRequestClient:
         self.timeout = timeout
 
     def _post(self, path: str, payload: dict[str, Any], *, prefer: str) -> Any:
+        headers = _supabase_headers(self.service_role_key)
+        headers["Prefer"] = prefer
         request = Request(
             f"{self.url}{path}",
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
             method="POST",
-            headers={
-                "apikey": self.service_role_key,
-                "Authorization": f"Bearer {self.service_role_key}",
-                "Content-Type": "application/json",
-                "Prefer": prefer,
-            },
+            headers=headers,
         )
         with self.opener(request, timeout=self.timeout) as response:
             raw = response.read()
