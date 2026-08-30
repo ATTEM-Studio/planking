@@ -48,7 +48,7 @@ class FakeResponse:
         return self.payload
 
 
-def test_supabase_client_upserts_slot_then_creates_pending_job():
+def _run_enqueue(key):
     requests = []
     responses = iter([
         FakeResponse([{"id": "slot-1"}]),
@@ -61,18 +61,31 @@ def test_supabase_client_upserts_slot_then_creates_pending_job():
 
     client = SupabaseRankRequestClient(
         url="https://db.test",
-        service_role_key="secret",
+        service_role_key=key,
         opener=opener,
     )
     result = client.enqueue_rank_request("경성대맛집", "1340244014", "태봉곱창")
+    return result, requests
 
+
+def test_supabase_client_uses_apikey_only_for_new_secret_key():
+    result, requests = _run_enqueue("sb_secret_example")
     assert result == {"slotId": "slot-1", "jobId": "job-1", "status": "PENDING"}
     first = requests[0][0]
     assert "rank_slots?on_conflict=keyword,target_mid&select=id" in first.full_url
-    assert first.get_header("Authorization") == "Bearer secret"
+    assert first.get_header("Authorization") is None
+    assert first.get_header("Apikey") == "sb_secret_example"
     first_body = json.loads(first.data.decode("utf-8"))
     assert first_body["target_mid"] == "1340244014"
 
     second = requests[1][0]
     second_body = json.loads(second.data.decode("utf-8"))
     assert second_body == {"slot_id": "slot-1", "status": "PENDING"}
+
+
+def test_supabase_client_keeps_bearer_for_legacy_service_role_jwt():
+    legacy = "eyJhbGciOiJIUzI1NiJ9.payload.signature"
+    _result, requests = _run_enqueue(legacy)
+    first = requests[0][0]
+    assert first.get_header("Authorization") == f"Bearer {legacy}"
+    assert first.get_header("Apikey") == legacy
