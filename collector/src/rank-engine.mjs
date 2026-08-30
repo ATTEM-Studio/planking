@@ -1,7 +1,7 @@
 import { normalizeOrganicItems } from './normalize.mjs';
 import { assertRankResult } from './types.mjs';
 
-export function findRankAcrossPages({ targetMid, pages, maxRank = 300, complete = false }) {
+export function findRankAcrossPages({ targetMid, pages, maxRank = 300 }) {
   const target = String(targetMid ?? '');
   if (!target) throw new TypeError('targetMid is required');
   if (!Array.isArray(pages)) throw new TypeError('pages must be an array');
@@ -31,8 +31,7 @@ export function findRankAcrossPages({ targetMid, pages, maxRank = 300, complete 
     if (itemsScanned >= maxRank) break;
   }
 
-  const pageCapacityReached = pages.length >= Math.ceil(maxRank / 50);
-  if (!(complete || itemsScanned >= maxRank || pageCapacityReached)) {
+  if (itemsScanned < maxRank) {
     throw new Error('incomplete traversal: target was not found before the collection ended');
   }
 
