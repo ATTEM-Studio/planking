@@ -38,12 +38,33 @@ exact MID match / organic rank
 - `300+` means **only** `OUT_OF_RANGE` after a complete traversal
 - block, timeout, parsing failure, or other incomplete traversal is never converted to `300+`
 
+## Place metric history
+
+순위가 `FOUND`인 경우 같은 검색 결과의 대상 MID에서 확인 가능한 플레이스 지표도 KST 날짜 기준으로 `place_metrics_history`에 UPSERT합니다.
+
+현재 네이버 `allSearch` 응답에서는 다음 필드가 실수집으로 확인되었습니다.
+
+```text
+placeReviewCount -> 방문자 리뷰 수
+reviewCount      -> 블로그 리뷰 수
+```
+
+기존/다른 응답 형태의 `visitorReviewCount`, `blogCafeReviewCount`도 우선 지원합니다. 저장 수는 `saveCount`가 실제 응답에 존재할 때만 원문 그대로 저장합니다. `87,000+`, `1,000+`, `~100` 같은 구간형 값을 숫자로 환산하거나 변화량을 임의 계산하지 않습니다. 현재 자연스러운 검색·상세 응답에서 저장 수가 확인되지 않는 경우 DB에는 `null`, UI에는 `—`로 표시합니다.
+
+2026-08-31 KST 실수집 검증에서는 MID `1328453904`가 `visitor_review_count=635`, `blog_review_count=31`로 저장되었고 `save_count_raw`는 응답 부재로 `null`이었습니다.
+
 ## Database migration
 
-The schema is in:
+Rank schema:
 
 ```text
 supabase/migrations/202608300001_rank_tracking.sql
+```
+
+Place metric schema:
+
+```text
+supabase/migrations/202608310001_place_metrics_history.sql
 ```
 
 With a linked Supabase CLI project, apply migrations with:
@@ -52,7 +73,7 @@ With a linked Supabase CLI project, apply migrations with:
 supabase db push
 ```
 
-Alternatively, review and run the migration in the Supabase SQL editor. The migration creates `rank_slots`, `rank_jobs`, `rank_history`, and the service-role-only `claim_next_rank_job()` RPC.
+Alternatively, review and run the migrations in the Supabase SQL editor. Browser roles do not receive table access; server operations use the service role only.
 
 ## Required environment variables
 
