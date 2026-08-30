@@ -2,7 +2,7 @@ name: Verify
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'feat/**']
   pull_request:
 
 jobs:
@@ -26,3 +26,9 @@ jobs:
         run: python -m compileall -q api src
       - name: Check JavaScript syntax
         run: node --check web/app.mjs
+      - name: Install rank collector dependencies
+        run: npm install --prefix collector
+      - name: Rank collector tests
+        run: npm test --prefix collector
+      - name: Rank collector syntax
+        run: npm run check --prefix collector

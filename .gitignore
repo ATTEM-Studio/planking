@@ -2,3 +2,9 @@ __pycache__/
 .pytest_cache/
 *.pyc
 .DS_Store
+collector/node_modules/
+collector/.env
+collector/.env.*
+collector/.cache/
+collector/.playwright/
+collector/playwright-report/
