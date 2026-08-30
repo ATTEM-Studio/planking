@@ -1,4 +1,4 @@
-import { extractFirstPageItems, extractGraphqlItems, normalizeOrganicItems } from './normalize.mjs';
+import { extractFirstPageItems, extractGraphqlItems, extractPlaceMetrics, normalizeOrganicItems } from './normalize.mjs';
 import { findRankAcrossPages } from './rank-engine.mjs';
 import { assertRankResult } from './types.mjs';
 
@@ -59,6 +59,21 @@ function tryCurrentRank(targetMid, pages, maxRank) {
     if (String(error?.message ?? '').includes('incomplete traversal')) return null;
     throw error;
   }
+}
+
+function attachPlaceMetrics(result, targetMid, pages) {
+  if (!result || result.status !== 'FOUND') return result;
+  const target = String(targetMid);
+  for (const page of pages) {
+    const match = normalizeOrganicItems(page).find(item => item.mid === target);
+    if (!match) continue;
+    const metrics = extractPlaceMetrics(match.raw);
+    if (Object.values(metrics).some(value => value !== null)) {
+      return assertRankResult({ ...result, placeMetrics: metrics });
+    }
+    return result;
+  }
+  return result;
 }
 
 export class NaverMapCollector {
@@ -137,7 +152,7 @@ export class NaverMapCollector {
 
       pages.push(await waitForCapture('first', firstBefore));
       let found = tryCurrentRank(cleanMid, pages, maxRank);
-      if (found) return found;
+      if (found) return attachPlaceMetrics(found, cleanMid, pages);
 
       const maxPages = Math.min(6, Math.ceil(maxRank / 50));
       for (let pageNumber = 2; pageNumber <= maxPages; pageNumber += 1) {
@@ -160,11 +175,11 @@ export class NaverMapCollector {
 
         pages.push(await waitForCapture('graphql', graphBefore));
         found = tryCurrentRank(cleanMid, pages, maxRank);
-        if (found) return found;
+        if (found) return attachPlaceMetrics(found, cleanMid, pages);
       }
 
       found = tryCurrentRank(cleanMid, pages, maxRank);
-      return found || incompleteResult(pages, maxRank);
+      return found ? attachPlaceMetrics(found, cleanMid, pages) : incompleteResult(pages, maxRank);
     } catch (error) {
       if (error?.code === 'BLOCKED') {
         return errorResult('BLOCKED', pages, 'BLOCKED', String(error.message ?? 'Naver blocked request'));
