@@ -28,6 +28,7 @@ export function jobLabel(status) {
     RUNNING: '조회 중',
     SUCCESS: '정상 완료',
     OUT_OF_RANGE: '300위 밖',
+    INCOMPLETE: '조회 불완전',
     BLOCKED: '조회 제한',
     TIMEOUT: '조회 지연',
     FAILED: '조회 실패',
