@@ -1,6 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatRankResult, jobLabel, parseTargetMid, rankDelta } from '../web/rank-tracker-utils.mjs';
+import {
+  buildRankChartPoints,
+  filterHistoryWindow,
+  formatRankResult,
+  historySummary,
+  jobLabel,
+  parseTargetMid,
+  rankDelta,
+} from '../web/rank-tracker-utils.mjs';
 
 test('parseTargetMid accepts plain MID and Naver place URLs', () => {
   assert.equal(parseTargetMid('1340244014'), '1340244014');
@@ -34,4 +42,42 @@ test('rankDelta treats a lower rank number as improvement', () => {
   ]), { direction: 'down', amount: 2 });
 
   assert.equal(rankDelta([{ status: 'OUT_OF_RANGE', rank: null }]), null);
+});
+
+test('filterHistoryWindow uses the newest measurement as the calendar anchor', () => {
+  const history = [
+    { measured_date: '2026-08-30', rank: 19, status: 'FOUND' },
+    { measured_date: '2026-08-27', rank: 22, status: 'FOUND' },
+    { measured_date: '2026-08-23', rank: 30, status: 'FOUND' },
+    { measured_date: '2026-07-01', rank: 40, status: 'FOUND' },
+  ];
+  assert.deepEqual(filterHistoryWindow(history, '7').map((row) => row.measured_date), [
+    '2026-08-30', '2026-08-27', '2026-08-23',
+  ]);
+  assert.equal(filterHistoryWindow(history, '30').length, 3);
+  assert.equal(filterHistoryWindow(history, 'all').length, 4);
+});
+
+test('buildRankChartPoints maps best ranks toward the top and 300+ to the floor', () => {
+  const points = buildRankChartPoints([
+    { measured_date: '2026-08-28', rank: 30, status: 'FOUND' },
+    { measured_date: '2026-08-29', rank: null, status: 'OUT_OF_RANGE' },
+    { measured_date: '2026-08-30', rank: 10, status: 'FOUND' },
+  ], 600, 220);
+  assert.equal(points.length, 3);
+  assert.ok(points[2].y < points[0].y);
+  assert.equal(points[1].display, '300+');
+  assert.ok(points[1].y > points[0].y);
+});
+
+test('historySummary returns latest, best, measured count, and change', () => {
+  const summary = historySummary([
+    { measured_date: '2026-08-30', rank: 19, status: 'FOUND' },
+    { measured_date: '2026-08-29', rank: 20, status: 'FOUND' },
+    { measured_date: '2026-08-28', rank: null, status: 'OUT_OF_RANGE' },
+  ]);
+  assert.equal(summary.latest, '19위');
+  assert.equal(summary.best, '19위');
+  assert.equal(summary.count, 3);
+  assert.deepEqual(summary.delta, { direction: 'up', amount: 1 });
 });
