@@ -9,7 +9,11 @@ import { findRankAcrossPages } from './rank-engine.mjs';
 import { assertRankResult } from './types.mjs';
 
 const FIRST_PAGE_MARKER = '/p/api/search/allSearch';
-const GRAPHQL_MARKER = 'pcmap-api.place.naver.com/graphql';
+const RANK_GRAPHQL_MARKER = 'pcmap-api.place.naver.com/graphql';
+const METRIC_GRAPHQL_MARKERS = [
+  'p-api.place.naver.com/graphql',
+  'pcmap-api.place.naver.com/graphql',
+];
 
 async function defaultBrowserFactory() {
   const { chromium } = await import('playwright');
@@ -58,6 +62,10 @@ function isBlockedText(text) {
   return value.includes('captcha') || value.includes('too many requests');
 }
 
+function isMetricGraphqlUrl(url) {
+  return METRIC_GRAPHQL_MARKERS.some(marker => String(url ?? '').includes(marker));
+}
+
 function tryCurrentRank(targetMid, pages, maxRank) {
   try {
     return findRankAcrossPages({ targetMid, pages, maxRank });
@@ -67,19 +75,20 @@ function tryCurrentRank(targetMid, pages, maxRank) {
   }
 }
 
-function attachPlaceMetrics(result, targetMid, pages) {
-  if (!result || result.status !== 'FOUND') return result;
+function findMatchedOrganicItem(targetMid, pages) {
   const target = String(targetMid);
   for (const page of pages) {
     const match = normalizeOrganicItems(page).find(item => item.mid === target);
-    if (!match) continue;
-    const metrics = extractPlaceMetrics(match.raw);
-    if (Object.values(metrics).some(value => value !== null)) {
-      return assertRankResult({ ...result, placeMetrics: metrics });
-    }
-    return result;
+    if (match) return match;
   }
-  return result;
+  return null;
+}
+
+function attachPlaceMetrics(result, matchedItem) {
+  if (!result || result.status !== 'FOUND' || !matchedItem) return result;
+  const metrics = extractPlaceMetrics(matchedItem.raw);
+  if (!Object.values(metrics).some(value => value !== null)) return result;
+  return assertRankResult({ ...result, placeMetrics: metrics });
 }
 
 function shouldEnrichSaveCount(result) {
@@ -98,12 +107,15 @@ function mergePlaceMetrics(base, rich) {
 
 async function enrichPlaceMetricsFromNaverSearch({
   context,
-  keyword,
+  searchQuery,
   targetMid,
   result,
   timeoutMs,
 }) {
   if (!shouldEnrichSaveCount(result)) return result;
+
+  const cleanSearchQuery = String(searchQuery ?? '').trim();
+  if (!cleanSearchQuery) return result;
 
   let metricsPage;
   let richMetrics = null;
@@ -114,7 +126,7 @@ async function enrichPlaceMetricsFromNaverSearch({
         const status = typeof response.status === 'function' ? response.status() : 0;
         if (status === 429) return;
         const url = typeof response.url === 'function' ? response.url() : '';
-        if (!url.includes(GRAPHQL_MARKER)) return;
+        if (!isMetricGraphqlUrl(url)) return;
         const payload = await response.json();
         const rawItem = extractPlaceItemByMid(payload, targetMid);
         if (!rawItem) return;
@@ -128,7 +140,7 @@ async function enrichPlaceMetricsFromNaverSearch({
     });
 
     await metricsPage.goto(
-      `https://search.naver.com/search.naver?where=nexearch&query=${encodeURIComponent(keyword)}`,
+      `https://search.naver.com/search.naver?where=nexearch&query=${encodeURIComponent(cleanSearchQuery)}`,
       { waitUntil: 'domcontentloaded', timeout: timeoutMs },
     );
 
@@ -161,7 +173,7 @@ export class NaverMapCollector {
     browserFactory = defaultBrowserFactory,
     timeoutMs = 15000,
     pageDelayMs = 600,
-    metricEnrichmentTimeoutMs = 3000,
+    metricEnrichmentTimeoutMs = 5000,
   } = {}) {
     this.browserFactory = browserFactory;
     this.timeoutMs = timeoutMs;
@@ -202,10 +214,12 @@ export class NaverMapCollector {
     };
 
     const finalizeFound = async found => {
-      const withBaseMetrics = attachPlaceMetrics(found, cleanMid, pages);
+      const matchedItem = findMatchedOrganicItem(cleanMid, pages);
+      const withBaseMetrics = attachPlaceMetrics(found, matchedItem);
+      const exactPlaceName = String(matchedItem?.name ?? '').trim();
       return enrichPlaceMetricsFromNaverSearch({
         context,
-        keyword: cleanKeyword,
+        searchQuery: exactPlaceName || cleanKeyword,
         targetMid: cleanMid,
         result: withBaseMetrics,
         timeoutMs: this.metricEnrichmentTimeoutMs,
@@ -217,7 +231,7 @@ export class NaverMapCollector {
       context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
       const page = await context.newPage();
 
-      page.on('response', async (response) => {
+      page.on('response', async response => {
         try {
           const status = typeof response.status === 'function' ? response.status() : 0;
           if (status === 429) {
@@ -225,7 +239,7 @@ export class NaverMapCollector {
             return;
           }
           const url = typeof response.url === 'function' ? response.url() : '';
-          if (!url.includes(FIRST_PAGE_MARKER) && !url.includes(GRAPHQL_MARKER)) return;
+          if (!url.includes(FIRST_PAGE_MARKER) && !url.includes(RANK_GRAPHQL_MARKER)) return;
           const payload = await response.json();
           if (url.includes(FIRST_PAGE_MARKER)) {
             capture.first.push(extractFirstPageItems(payload));
