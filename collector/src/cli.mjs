@@ -70,6 +70,10 @@ export async function drainQueue({
   runOneImpl = runOne,
   sleepImpl = sleep,
 }) {
+  if (typeof repository?.enqueueDailyJobs === 'function') {
+    await repository.enqueueDailyJobs();
+  }
+
   let processed = 0;
   while (processed < maxJobs) {
     const state = await runOneImpl({ repository, collector, now: new Date() });
