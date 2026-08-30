@@ -1,0 +1,29 @@
+name: Place Metrics Smoke Temp
+
+on:
+  push:
+    branches:
+      - feat/ui-place-metrics
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      RANK_WORKER_DELAY_MS: '200'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - working-directory: collector
+        run: npm install
+      - working-directory: collector
+        run: npx playwright install --with-deps chromium
+      - name: Process one pending job with feature collector
+        run: node collector/src/cli.mjs drain --max 1
