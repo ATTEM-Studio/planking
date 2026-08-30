@@ -1,72 +1,78 @@
 import { chromium } from 'playwright';
 
-const keyword = process.argv[2] || '하단카페';
 const targetMid = String(process.argv[3] || '1328453904');
-const graphMarker = 'pcmap-api.place.naver.com/graphql';
+const interestingKey = /review|save|bookmark|receipt|visitor|blog|count/i;
 
-function findTarget(node) {
-  if (!node || typeof node !== 'object') return null;
+function walkMatches(node, path = '', depth = 0, out = []) {
+  if (depth > 8 || node === null || node === undefined) return out;
   if (Array.isArray(node)) {
-    for (const value of node) {
-      const found = findTarget(value);
-      if (found) return found;
+    node.forEach((value, index) => walkMatches(value, `${path}[${index}]`, depth + 1, out));
+    return out;
+  }
+  if (typeof node !== 'object') return out;
+  for (const [key, value] of Object.entries(node)) {
+    const next = path ? `${path}.${key}` : key;
+    if (interestingKey.test(key) && (value === null || ['string', 'number', 'boolean'].includes(typeof value))) {
+      out.push([next, value]);
     }
-    return null;
+    walkMatches(value, next, depth + 1, out);
   }
-  const id = node.id ?? node.mid ?? node.placeId ?? node.place_id;
-  if (id !== undefined && id !== null && String(id) === targetMid) return node;
-  for (const value of Object.values(node)) {
-    const found = findTarget(value);
-    if (found) return found;
-  }
-  return null;
-}
-
-function selectedFields(item) {
-  if (!item) return null;
-  return {
-    id: item.id ?? item.mid ?? item.placeId ?? item.place_id ?? null,
-    name: item.name ?? item.placeName ?? null,
-    visitorReviewCount: item.visitorReviewCount ?? null,
-    blogCafeReviewCount: item.blogCafeReviewCount ?? null,
-    saveCount: item.saveCount ?? null,
-    totalReviewCount: item.totalReviewCount ?? null,
-    bookingReviewCount: item.bookingReviewCount ?? null,
-    reviewCount: item.reviewCount ?? null,
-    placeReviewCount: item.placeReviewCount ?? null,
-  };
+  return out;
 }
 
 const browser = await chromium.launch({ headless: true });
-const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
 const page = await context.newPage();
-let graphResponses = 0;
-let target = null;
+const evidence = [];
 
 page.on('response', async (response) => {
-  if (!response.url().includes(graphMarker)) return;
-  graphResponses += 1;
+  const url = response.url();
+  if (!url.includes('naver.com')) return;
+  const contentType = String(response.headers()['content-type'] || '');
+  if (!contentType.includes('json') && !url.includes('graphql')) return;
   try {
     const payload = await response.json();
-    const found = findTarget(payload);
-    if (found && !target) {
-      target = selectedFields(found);
-      console.log('GRAPHQL_TARGET=' + JSON.stringify(target));
-      console.log('GRAPHQL_TARGET_KEYS=' + JSON.stringify(Object.keys(found).sort()));
+    const matches = walkMatches(payload);
+    if (matches.length) {
+      evidence.push({
+        url: url.split('?')[0],
+        status: response.status(),
+        matches: matches.slice(0, 120),
+      });
     }
   } catch (error) {
-    console.log('GRAPHQL_PARSE_ERROR=' + JSON.stringify(String(error?.message ?? error)));
+    if (url.includes('graphql')) {
+      console.log('GRAPHQL_META=' + JSON.stringify({
+        url: url.split('?')[0],
+        status: response.status(),
+        contentType,
+        parseError: String(error?.message ?? error),
+      }));
+    }
   }
 });
 
-const url = `https://pcmap.place.naver.com/place/list?query=${encodeURIComponent(keyword)}`;
-console.log('LIST_URL=' + url);
-await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
-await page.waitForTimeout(6000);
-console.log('GRAPHQL_RESPONSES=' + graphResponses);
-console.log('TARGET_FOUND=' + Boolean(target));
-console.log('FINAL_URL=' + page.url());
+const detailUrl = `https://map.naver.com/p/entry/place/${targetMid}`;
+await page.goto(detailUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
+await page.waitForTimeout(7000);
+
+const frames = page.frames();
+console.log('FRAME_URLS=' + JSON.stringify(frames.map(frame => frame.url())));
+for (const frame of frames) {
+  const text = await frame.locator('body').innerText().catch(() => '');
+  const lines = text
+    .split(/\n+/)
+    .map(line => line.trim())
+    .filter(line => /방문자\s*리뷰|블로그\s*리뷰|저장|리뷰\s*\d|\d+[,.]?\d*\s*저장/i.test(line))
+    .slice(0, 50);
+  if (lines.length) {
+    console.log('FRAME_VISIBLE=' + JSON.stringify({ url: frame.url(), lines }));
+  }
+}
+
+for (const item of evidence) {
+  console.log('DETAIL_JSON=' + JSON.stringify(item));
+}
 
 await context.close();
 await browser.close();
-process.exit(target ? 0 : 2);
