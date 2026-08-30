@@ -29,6 +29,18 @@ function errorResult(status, pages, errorCode, errorMessage) {
   });
 }
 
+function incompleteResult(pages, maxRank, reason = 'pagination ended before the requested rank limit') {
+  const counts = scannedCounts(pages);
+  return assertRankResult({
+    status: 'INCOMPLETE',
+    rank: null,
+    ...counts,
+    matchedMid: null,
+    errorCode: 'INCOMPLETE_TRAVERSAL',
+    errorMessage: `${reason}: scanned ${counts.itemsScanned} of ${maxRank}`,
+  });
+}
+
 function isTimeoutError(error) {
   const name = String(error?.name ?? '').toLowerCase();
   const message = String(error?.message ?? '').toLowerCase();
@@ -133,7 +145,7 @@ export class NaverMapCollector {
         const link = frame.getByRole('link', { name: String(pageNumber), exact: true });
         const count = await link.count();
         if (count === 0) {
-          return findRankAcrossPages({ targetMid: cleanMid, pages, maxRank, complete: true });
+          return incompleteResult(pages, maxRank, `page ${pageNumber} was unavailable`);
         }
 
         const graphBefore = capture.graphql.length;
@@ -151,7 +163,8 @@ export class NaverMapCollector {
         if (found) return found;
       }
 
-      return findRankAcrossPages({ targetMid: cleanMid, pages, maxRank, complete: true });
+      found = tryCurrentRank(cleanMid, pages, maxRank);
+      return found || incompleteResult(pages, maxRank);
     } catch (error) {
       if (error?.code === 'BLOCKED') {
         return errorResult('BLOCKED', pages, 'BLOCKED', String(error.message ?? 'Naver blocked request'));
