@@ -50,8 +50,12 @@ export function extractGraphqlItems(payload) {
 export function extractPlaceMetrics(rawItem) {
   const item = rawItem && typeof rawItem === 'object' ? rawItem : {};
   return {
-    visitorReviewCount: nullableCount(item.visitorReviewCount ?? item.visitor_review_count),
-    blogReviewCount: nullableCount(item.blogCafeReviewCount ?? item.blogReviewCount ?? item.blog_review_count),
+    visitorReviewCount: nullableCount(
+      item.visitorReviewCount ?? item.placeReviewCount ?? item.visitor_review_count,
+    ),
+    blogReviewCount: nullableCount(
+      item.blogCafeReviewCount ?? item.blogReviewCount ?? item.reviewCount ?? item.blog_review_count,
+    ),
     saveCountRaw: nullableRaw(item.saveCount ?? item.save_count ?? item.saveCountRaw),
   };
 }
