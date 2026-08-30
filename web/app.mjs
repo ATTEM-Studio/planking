@@ -2,7 +2,7 @@ import { formatRankResult, jobLabel, parseTargetMid, rankDelta } from './rank-tr
 
 const $ = (id) => document.getElementById(id);
 const pendingStatuses = new Set(['PENDING', 'RUNNING']);
-const issueStatuses = new Set(['BLOCKED', 'TIMEOUT', 'FAILED']);
+const issueStatuses = new Set(['INCOMPLETE', 'BLOCKED', 'TIMEOUT', 'FAILED']);
 let slots = [];
 let refreshTimer = null;
 
