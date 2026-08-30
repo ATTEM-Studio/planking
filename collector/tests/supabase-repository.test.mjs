@@ -6,9 +6,12 @@ function fakeFetchFactory() {
   const calls = [];
   const fetchImpl = async (url, options = {}) => {
     calls.push({ url, options });
-    const body = String(url).includes('/rpc/claim_next_rank_job')
-      ? JSON.stringify([{ job_id: 'j1', slot_id: 's1', keyword: 'k', target_mid: 'm' }])
-      : '';
+    let body = '';
+    if (String(url).includes('/rpc/claim_next_rank_job')) {
+      body = JSON.stringify([{ job_id: 'j1', slot_id: 's1', keyword: 'k', target_mid: 'm' }]);
+    } else if (String(url).includes('/rpc/enqueue_daily_rank_jobs')) {
+      body = '2';
+    }
     return { ok: true, status: 200, async text() { return body; } };
   };
   return { calls, fetchImpl };
@@ -31,6 +34,16 @@ test('claimNextJob keeps bearer auth for legacy service role JWT', async () => {
   await repo.claimNextJob();
   assert.equal(calls[0].options.headers.apikey, legacy);
   assert.equal(calls[0].options.headers.Authorization, `Bearer ${legacy}`);
+});
+
+test('enqueueDailyJobs calls the service-role-only daily RPC', async () => {
+  const { calls, fetchImpl } = fakeFetchFactory();
+  const repo = new SupabaseRankRepository({ url: 'https://db.test', serviceRoleKey: 'sb_secret_example', fetchImpl });
+  const inserted = await repo.enqueueDailyJobs();
+  assert.equal(inserted, 2);
+  assert.match(calls[0].url, /\/rest\/v1\/rpc\/enqueue_daily_rank_jobs$/);
+  assert.equal(calls[0].options.method, 'POST');
+  assert.equal(calls[0].options.body, '{}');
 });
 
 test('upsertHistory uses slot/date conflict key and merge-duplicates', async () => {

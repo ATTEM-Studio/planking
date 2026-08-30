@@ -1,0 +1,57 @@
+name: Rank Worker
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/5 * * * *'
+
+concurrency:
+  group: planking-rank-worker
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  drain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      RANK_WORKER_DELAY_MS: '1500'
+    steps:
+      - name: Check worker configuration
+        id: config
+        shell: bash
+        run: |
+          if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "Rank worker secrets are not configured; skipping this run."
+          fi
+
+      - name: Checkout
+        if: steps.config.outputs.ready == 'true'
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        if: steps.config.outputs.ready == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install collector dependencies
+        if: steps.config.outputs.ready == 'true'
+        working-directory: collector
+        run: npm install
+
+      - name: Install Chromium
+        if: steps.config.outputs.ready == 'true'
+        working-directory: collector
+        run: npx playwright install --with-deps chromium
+
+      - name: Drain pending rank jobs
+        if: steps.config.outputs.ready == 'true'
+        run: node collector/src/cli.mjs drain --max 10
