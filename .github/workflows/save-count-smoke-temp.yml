@@ -1,0 +1,24 @@
+name: Save Count Smoke Temp
+
+on:
+  push:
+    branches:
+      - feat/save-count-enrichment
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install collector dependencies
+        working-directory: collector
+        run: npm install
+      - name: Install Chromium
+        working-directory: collector
+        run: npx playwright install --with-deps chromium
+      - name: Live Naver smoke
+        run: node collector/src/cli.mjs once --keyword "하단카페" --mid "1328453904"
