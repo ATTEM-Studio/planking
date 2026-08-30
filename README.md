@@ -55,6 +55,15 @@ POST /api/analyze
 
 이미 N1/N2/N3가 계산된 경우 `scoredRows`를 전달할 수도 있습니다.
 
+## 실시간 순위 수집기
+
+`/api/analyze` 자체는 네이버를 크롤링하지 않습니다. 실시간 순위 수집은 별도 Node/Playwright worker가 담당하고, `/api/rank_request`는 수집 작업을 큐에 등록합니다.
+
+- 최대 오가닉 순위: TOP 300
+- 정상 완주 후 미발견: `OUT_OF_RANGE` / 화면 의미 `300+`
+- 차단·타임아웃·실패: `300+`와 별도 상태
+- 운영/배포: [`docs/RANK_COLLECTOR.md`](docs/RANK_COLLECTOR.md)
+
 ## 로컬 검증
 
 ```bash
@@ -62,6 +71,8 @@ python -m pytest -q
 node --test tests-js/*.test.mjs
 python -m compileall -q api src
 node --check web/app.mjs
+npm test --prefix collector
+npm run check --prefix collector
 ```
 
 ## Vercel 배포
@@ -73,7 +84,7 @@ node --check web/app.mjs
 - Output Directory: 비움
 - 외부 Python dependency: 없음
 
-현재 MVP는 네이버 서버에 직접 실시간 요청하지 않습니다. 수집기와 분석 엔진은 분리되어 있으며, 실시간 순위 수집은 다음 단계에서 별도 모듈로 연결합니다.
+Vercel에는 경량 분석/큐 등록 API를 배포합니다. Chromium을 사용하는 장기 실행 Rank Worker는 VM/컨테이너 등 별도 실행 환경에서 운영합니다.
 
 ## 버전
 
