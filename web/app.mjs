@@ -120,7 +120,11 @@ function renderSlots() {
     button.addEventListener('click', async () => {
       const slot = slots.find((row) => row.id === button.dataset.slotId);
       if (!slot) return;
-      await queueRankRequest(slot.keyword, slot.targetMid, slot.placeName, button);
+      try {
+        await queueRankRequest(slot.keyword, slot.targetMid, slot.placeName, button);
+      } catch (error) {
+        setFormStatus(error.message || '재조회 요청에 실패했습니다.', true);
+      }
     });
   });
 
