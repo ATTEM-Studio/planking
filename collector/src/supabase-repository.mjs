@@ -4,6 +4,17 @@ function required(value, name) {
   return text;
 }
 
+function authHeaders(key) {
+  const headers = {
+    apikey: key,
+    'Content-Type': 'application/json',
+  };
+  if (key.startsWith('eyJ')) {
+    headers.Authorization = `Bearer ${key}`;
+  }
+  return headers;
+}
+
 export class SupabaseRankRepository {
   constructor({ url, serviceRoleKey, fetchImpl = fetch }) {
     this.url = required(url, 'url').replace(/\/$/, '');
@@ -13,9 +24,7 @@ export class SupabaseRankRepository {
 
   _headers(extra = {}) {
     return {
-      apikey: this.serviceRoleKey,
-      Authorization: `Bearer ${this.serviceRoleKey}`,
-      'Content-Type': 'application/json',
+      ...authHeaders(this.serviceRoleKey),
       ...extra,
     };
   }
