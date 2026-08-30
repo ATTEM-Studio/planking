@@ -2,6 +2,9 @@ name: Rank Worker
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - feat/rank-worker-smoke
   schedule:
     - cron: '*/5 * * * *'
 
