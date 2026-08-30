@@ -31,7 +31,7 @@ export function filterHistoryWindow(history, window = '30') {
   const newest = new Date(`${rows[0].measured_date}T00:00:00Z`);
   if (Number.isNaN(newest.getTime())) return [...rows];
   const cutoff = new Date(newest);
-  cutoff.setUTCDate(cutoff.getUTCDate() - days);
+  cutoff.setUTCDate(cutoff.getUTCDate() - (days - 1));
   return rows.filter((row) => {
     const date = new Date(`${row.measured_date}T00:00:00Z`);
     return !Number.isNaN(date.getTime()) && date >= cutoff && date <= newest;
