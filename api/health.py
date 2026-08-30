@@ -7,6 +7,16 @@ from typing import Any
 from urllib.request import Request, urlopen
 
 
+def _supabase_headers(key: str) -> dict[str, str]:
+    headers = {
+        "apikey": key,
+        "Accept": "application/json",
+    }
+    if key.startswith("eyJ"):
+        headers["Authorization"] = f"Bearer {key}"
+    return headers
+
+
 def check_supabase(*, url: str, service_role_key: str, opener=urlopen, timeout: int = 5) -> dict[str, Any]:
     base_url = str(url or "").strip().rstrip("/")
     key = str(service_role_key or "").strip()
@@ -16,11 +26,7 @@ def check_supabase(*, url: str, service_role_key: str, opener=urlopen, timeout: 
     request = Request(
         f"{base_url}/rest/v1/rank_slots?select=id&limit=1",
         method="GET",
-        headers={
-            "apikey": key,
-            "Authorization": f"Bearer {key}",
-            "Accept": "application/json",
-        },
+        headers=_supabase_headers(key),
     )
     with opener(request, timeout=timeout) as response:
         response.read()
