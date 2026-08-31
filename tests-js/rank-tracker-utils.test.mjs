@@ -6,6 +6,7 @@ import {
   buildRankChartPoints,
   filterHistoryWindow,
   formatRankResult,
+  groupSlotsByCompany,
   historySummary,
   jobLabel,
   metricSnapshotForDate,
@@ -125,4 +126,33 @@ test('buildMetricChartPoints scales numeric metric histories without inventing s
   assert.equal(points.at(-1).value, 2100);
   assert.ok(points.at(-1).y < points[0].y);
   assert.deepEqual(buildMetricChartPoints(metricsHistory, 'save_count_raw', 600, 220), []);
+});
+
+test('groupSlotsByCompany groups multiple keywords under the same MID without duplicating companies', () => {
+  const sharedMetrics = [{ measured_date: '2026-08-31', visitor_review_count: 5498, blog_review_count: 3166, save_count_raw: '87,000+' }];
+  const groups = groupSlotsByCompany([
+    { id: 's1', keyword: '하단고기집', targetMid: '1800550902', placeName: '부산삼겹살 하단본점', placeMetrics: sharedMetrics, history: [] },
+    { id: 's2', keyword: '하단삼겹살', targetMid: '1800550902', placeName: '부산삼겹살 하단본점', placeMetrics: sharedMetrics, history: [] },
+    { id: 's3', keyword: '하단카페', targetMid: '1328453904', placeName: '꿈카페 하단지점', placeMetrics: [], history: [] },
+  ]);
+
+  assert.equal(groups.length, 2);
+  assert.equal(groups[0].targetMid, '1800550902');
+  assert.equal(groups[0].placeName, '부산삼겹살 하단본점');
+  assert.deepEqual(groups[0].slots.map((slot) => slot.keyword), ['하단고기집', '하단삼겹살']);
+  assert.equal(groups[0].placeMetrics, sharedMetrics);
+  assert.equal(groups[1].targetMid, '1328453904');
+  assert.equal(groups[1].slots.length, 1);
+});
+
+test('groupSlotsByCompany prefers a usable place name and the richest metrics history for a MID', () => {
+  const shortMetrics = [{ measured_date: '2026-08-31' }];
+  const longMetrics = [{ measured_date: '2026-08-31' }, { measured_date: '2026-08-30' }];
+  const groups = groupSlotsByCompany([
+    { id: 's1', keyword: 'A', targetMid: '11111', placeName: '', placeMetrics: shortMetrics },
+    { id: 's2', keyword: 'B', targetMid: '11111', placeName: '업체명', placeMetrics: longMetrics },
+  ]);
+
+  assert.equal(groups[0].placeName, '업체명');
+  assert.equal(groups[0].placeMetrics, longMetrics);
 });

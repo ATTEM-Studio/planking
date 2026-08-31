@@ -27,6 +27,15 @@ def test_rank_manage_ui_contains_brand_metrics_and_history_detail_shell():
     assert "data-metric-period=\"7\"" in app
     assert "data-metric-period=\"30\"" in app
     assert "/api/rank_manage" in app
+    assert "company-card" in app
+    assert "company-toggle" in app
+    assert "company-keyword-list" in app
+    assert "keyword-rank-row" in app
+    assert "aria-expanded" in app
+    assert "expandedCompanies" in app
     assert "--accent: #3539e8" in css.lower()
+    assert ".company-card" in css
+    assert ".company-keyword-list" in css
+    assert ".keyword-rank-row" in css
     assert "prefers-reduced-motion" in css
     assert "prefers-reduced-motion" in manage_css
