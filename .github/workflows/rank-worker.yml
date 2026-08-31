@@ -2,8 +2,14 @@ name: Rank Worker
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'collector/**'
+      - 'supabase/migrations/**'
+      - '.github/workflows/rank-worker.yml'
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '3-58/5 * * * *'
 
 concurrency:
   group: planking-rank-worker
