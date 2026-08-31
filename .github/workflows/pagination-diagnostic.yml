@@ -16,6 +16,7 @@ jobs:
         with:
           node-version: 20
       - run: npm install --prefix collector
+      - run: npm test --prefix collector
       - run: npx --prefix collector playwright install --with-deps chromium
       - run: node collector/scripts/diagnose-pagination.mjs
         env:
