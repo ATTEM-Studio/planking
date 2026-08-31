@@ -15,6 +15,21 @@ function authHeaders(key) {
   return headers;
 }
 
+function normalizeClaimedJob(row) {
+  if (!row) return null;
+  return {
+    id: String(row.job_id ?? row.id),
+    slotId: String(row.slot_id),
+    keyword: String(row.keyword),
+    targetMid: String(row.target_mid),
+  };
+}
+
+function countResult(result) {
+  const value = Array.isArray(result) ? result[0] : result;
+  return Number.isFinite(Number(value)) ? Number(value) : 0;
+}
+
 export class SupabaseRankRepository {
   constructor({ url, serviceRoleKey, fetchImpl = fetch }) {
     this.url = required(url, 'url').replace(/\/$/, '');
@@ -42,13 +57,20 @@ export class SupabaseRankRepository {
     return JSON.parse(text);
   }
 
+  async requeueStaleJobs() {
+    const result = await this._request('/rest/v1/rpc/requeue_stale_rank_jobs', {
+      method: 'POST',
+      body: '{}',
+    });
+    return countResult(result);
+  }
+
   async enqueueDailyJobs() {
     const result = await this._request('/rest/v1/rpc/enqueue_daily_rank_jobs', {
       method: 'POST',
       body: '{}',
     });
-    const value = Array.isArray(result) ? result[0] : result;
-    return Number.isFinite(Number(value)) ? Number(value) : 0;
+    return countResult(result);
   }
 
   async claimNextJob() {
@@ -56,14 +78,15 @@ export class SupabaseRankRepository {
       method: 'POST',
       body: '{}',
     });
-    const row = Array.isArray(rows) ? rows[0] : rows;
-    if (!row) return null;
-    return {
-      id: String(row.job_id ?? row.id),
-      slotId: String(row.slot_id),
-      keyword: String(row.keyword),
-      targetMid: String(row.target_mid),
-    };
+    return normalizeClaimedJob(Array.isArray(rows) ? rows[0] : rows);
+  }
+
+  async claimJobById(jobId) {
+    const rows = await this._request('/rest/v1/rpc/claim_rank_job', {
+      method: 'POST',
+      body: JSON.stringify({ p_job_id: required(jobId, 'jobId') }),
+    });
+    return normalizeClaimedJob(Array.isArray(rows) ? rows[0] : rows);
   }
 
   async upsertHistory(slotId, measuredDate, result) {

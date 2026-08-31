@@ -9,6 +9,10 @@ function fakeFetchFactory() {
     let body = '';
     if (String(url).includes('/rpc/claim_next_rank_job')) {
       body = JSON.stringify([{ job_id: 'j1', slot_id: 's1', keyword: 'k', target_mid: 'm' }]);
+    } else if (String(url).includes('/rpc/claim_rank_job')) {
+      body = JSON.stringify([{ job_id: 'j1', slot_id: 's1', keyword: 'k', target_mid: 'm' }]);
+    } else if (String(url).includes('/rpc/requeue_stale_rank_jobs')) {
+      body = '1';
     } else if (String(url).includes('/rpc/enqueue_daily_rank_jobs')) {
       body = '2';
     }
@@ -25,6 +29,26 @@ test('claimNextJob uses apikey only for new Supabase secret keys', async () => {
   assert.match(calls[0].url, /\/rest\/v1\/rpc\/claim_next_rank_job$/);
   assert.equal(calls[0].options.headers.apikey, 'sb_secret_example');
   assert.equal(calls[0].options.headers.Authorization, undefined);
+});
+
+test('claimJobById atomically claims the requested pending job', async () => {
+  const { calls, fetchImpl } = fakeFetchFactory();
+  const repo = new SupabaseRankRepository({ url: 'https://db.test', serviceRoleKey: 'sb_secret_example', fetchImpl });
+  const job = await repo.claimJobById('j1');
+  assert.deepEqual(job, { id: 'j1', slotId: 's1', keyword: 'k', targetMid: 'm' });
+  assert.match(calls[0].url, /\/rest\/v1\/rpc\/claim_rank_job$/);
+  assert.equal(calls[0].options.method, 'POST');
+  assert.deepEqual(JSON.parse(calls[0].options.body), { p_job_id: 'j1' });
+});
+
+test('requeueStaleJobs calls the service-role stale recovery rpc', async () => {
+  const { calls, fetchImpl } = fakeFetchFactory();
+  const repo = new SupabaseRankRepository({ url: 'https://db.test', serviceRoleKey: 'sb_secret_example', fetchImpl });
+  const recovered = await repo.requeueStaleJobs();
+  assert.equal(recovered, 1);
+  assert.match(calls[0].url, /\/rest\/v1\/rpc\/requeue_stale_rank_jobs$/);
+  assert.equal(calls[0].options.method, 'POST');
+  assert.equal(calls[0].options.body, '{}');
 });
 
 test('claimNextJob keeps bearer auth for legacy service role JWT', async () => {

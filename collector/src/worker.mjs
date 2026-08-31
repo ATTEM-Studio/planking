@@ -1,15 +1,11 @@
 import { assertRankResult } from './types.mjs';
 
-function kstDate(value) {
+export function measurementDateKst(value) {
   const date = value instanceof Date ? value : new Date(value);
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Seoul',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(date);
-  const values = Object.fromEntries(parts.filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
-  return `${values.year}-${values.month}-${values.day}`;
+  if (Number.isNaN(date.getTime())) throw new TypeError('valid date is required');
+  // 14:00 KST is 05:00 UTC. Shift five hours back so the UTC calendar date
+  // changes exactly when the PLANKING measurement day changes.
+  return new Date(date.getTime() - (5 * 60 * 60 * 1000)).toISOString().slice(0, 10);
 }
 
 function normalizeJob(job) {
@@ -37,10 +33,11 @@ function hasObservedMetrics(metrics) {
   return metrics && Object.values(metrics).some(value => value !== null && value !== undefined);
 }
 
-export async function runOne({ repository, collector, now = new Date() }) {
-  const rawJob = await repository.claimNextJob();
-  if (!rawJob) return 'idle';
+export async function processClaimedJob({ repository, collector, rawJob, now = new Date() }) {
   const job = normalizeJob(rawJob);
+  if (!job.id || !job.slotId || !job.keyword || !job.targetMid) {
+    throw new TypeError('claimed rank job is incomplete');
+  }
 
   let result;
   try {
@@ -53,7 +50,7 @@ export async function runOne({ repository, collector, now = new Date() }) {
     result = assertRankResult(failedFromException(error));
   }
 
-  const measuredDate = kstDate(now);
+  const measuredDate = measurementDateKst(now);
   if (result.status === 'FOUND' || result.status === 'OUT_OF_RANGE') {
     await repository.upsertHistory(job.slotId, measuredDate, result);
     if (result.status === 'FOUND' && hasObservedMetrics(result.placeMetrics)) {
@@ -66,5 +63,12 @@ export async function runOne({ repository, collector, now = new Date() }) {
   } else {
     await repository.failJob(job.id, result);
   }
+  return result;
+}
+
+export async function runOne({ repository, collector, now = new Date() }) {
+  const rawJob = await repository.claimNextJob();
+  if (!rawJob) return 'idle';
+  await processClaimedJob({ repository, collector, rawJob, now });
   return 'processed';
 }

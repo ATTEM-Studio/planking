@@ -70,6 +70,9 @@ export async function drainQueue({
   runOneImpl = runOne,
   sleepImpl = sleep,
 }) {
+  if (typeof repository?.requeueStaleJobs === 'function') {
+    await repository.requeueStaleJobs();
+  }
   if (typeof repository?.enqueueDailyJobs === 'function') {
     await repository.enqueueDailyJobs();
   }

@@ -27,11 +27,8 @@ function escapeHtml(value) {
 }
 
 function kstToday() {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
-  }).formatToParts(new Date());
-  const values = Object.fromEntries(parts.filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
-  return `${values.year}-${values.month}-${values.day}`;
+  // PLANKING의 측정일은 매일 14:00 KST(05:00 UTC)에 바뀝니다.
+  return new Date(Date.now() - (5 * 60 * 60 * 1000)).toISOString().slice(0, 10);
 }
 
 function setFormStatus(message = '', error = false) {
@@ -285,7 +282,20 @@ async function refreshSlots({ silent = false } = {}) {
   }
 }
 
+async function runInstantCollection(jobId) {
+  const response = await fetch('/api/rank_collect', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jobId }),
+  });
+  const data = await response.json();
+  if (response.status === 409) return { claimedElsewhere: true, data };
+  if (!response.ok) throw new Error(data.error || '즉시 조회에 실패했습니다.');
+  return { claimedElsewhere: false, data };
+}
+
 async function queueRankRequest(keyword, targetMid, placeName, button = null) {
+  const idleLabel = button?.classList?.contains('recheck-button') ? '다시 조회' : '추적 시작';
   if (button) {
     button.disabled = true;
     button.textContent = '요청 중…';
@@ -298,13 +308,33 @@ async function queueRankRequest(keyword, targetMid, placeName, button = null) {
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || '순위 조회 요청에 실패했습니다.');
-    setFormStatus('조회 요청이 등록되었습니다. 백그라운드 수집기가 순차적으로 처리합니다.');
+
+    if (button) button.textContent = '즉시 조회 중…';
+    setFormStatus('즉시 조회 중입니다. 첫 결과를 확인하고 있습니다.');
     await refreshSlots({ silent: true });
+
+    let instant;
+    try {
+      instant = await runInstantCollection(data.jobId);
+    } catch (error) {
+      setFormStatus('즉시 조회가 지연되고 있습니다. 등록은 완료되었으며 예약 수집기가 이어서 처리합니다.', true);
+      await refreshSlots({ silent: true });
+      return data;
+    }
+
+    await refreshSlots({ silent: true });
+    if (instant.claimedElsewhere) {
+      setFormStatus('이미 다른 수집기가 조회를 시작했습니다. 결과가 들어오는 즉시 화면에 반영됩니다.');
+    } else if (['FOUND', 'OUT_OF_RANGE'].includes(instant.data?.result?.status)) {
+      setFormStatus('첫 조회가 완료되었습니다. 이후 매일 오후 2시(KST)에 자동 측정됩니다.');
+    } else {
+      setFormStatus('첫 조회가 완료되지 않았습니다. 현재 상태를 확인해 주세요.', true);
+    }
     return data;
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = '다시 조회';
+      button.textContent = idleLabel;
     }
   }
 }
@@ -521,7 +551,7 @@ $('rankForm').addEventListener('submit', async (event) => {
   submit.textContent = '등록 중…';
   setFormStatus('순위 추적을 등록하고 있습니다.');
   try {
-    await queueRankRequest(keyword, targetMid, placeName);
+    await queueRankRequest(keyword, targetMid, placeName, submit);
     $('midInput').value = targetMid;
     $('placeNameInput').value = '';
   } catch (error) {

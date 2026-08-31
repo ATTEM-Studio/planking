@@ -14,10 +14,14 @@ test('parseArgs reads drain max jobs with a safe default', () => {
   assert.throws(() => parseArgs(['drain', '--max', '0']), /--max/);
 });
 
-test('drainQueue seeds daily jobs once before claiming the queue', async () => {
+test('drainQueue recovers stale jobs then seeds daily jobs before claiming the queue', async () => {
   const order = [];
   const processed = await drainQueue({
     repository: {
+      async requeueStaleJobs() {
+        order.push('requeue-stale');
+        return 1;
+      },
       async enqueueDailyJobs() {
         order.push('enqueue-daily');
         return 3;
@@ -33,7 +37,7 @@ test('drainQueue seeds daily jobs once before claiming the queue', async () => {
     sleepImpl: async () => {},
   });
   assert.equal(processed, 0);
-  assert.deepEqual(order, ['enqueue-daily', 'claim']);
+  assert.deepEqual(order, ['requeue-stale', 'enqueue-daily', 'claim']);
 });
 
 test('drainQueue stops when queue becomes idle', async () => {

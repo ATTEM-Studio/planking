@@ -6,7 +6,7 @@ set search_path = public
 as $$
 declare
   inserted_count integer := 0;
-  today_kst date := (now() at time zone 'Asia/Seoul')::date;
+  measurement_date_kst date := ((now() at time zone 'Asia/Seoul') - interval '14 hours')::date;
 begin
   insert into public.rank_jobs (slot_id, status)
   select s.id, 'PENDING'
@@ -16,7 +16,7 @@ begin
       select 1
       from public.rank_history h
       where h.slot_id = s.id
-        and h.measured_date = today_kst
+        and h.measured_date = measurement_date_kst
     )
     and not exists (
       select 1
@@ -24,7 +24,7 @@ begin
       where j.slot_id = s.id
         and (
           j.status in ('PENDING','RUNNING')
-          or (j.requested_at at time zone 'Asia/Seoul')::date = today_kst
+          or ((j.requested_at at time zone 'Asia/Seoul') - interval '14 hours')::date = measurement_date_kst
         )
     );
 
