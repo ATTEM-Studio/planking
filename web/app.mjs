@@ -3,6 +3,7 @@ import {
   buildMetricWindows,
   buildRankChartPoints,
   formatRankResult,
+  groupSlotsByCompany,
   historySummary,
   jobLabel,
   metricSnapshotForDate,
@@ -13,7 +14,8 @@ import {
 const $ = (id) => document.getElementById(id);
 const pendingStatuses = new Set(['PENDING', 'RUNNING']);
 const issueStatuses = new Set(['INCOMPLETE', 'BLOCKED', 'TIMEOUT', 'FAILED']);
-const metricPeriodBySlot = new Map();
+const metricPeriodByCompany = new Map();
+const expandedCompanies = new Set();
 let slots = [];
 let refreshTimer = null;
 let activeDetail = null;
@@ -71,24 +73,31 @@ function statusTone(status) {
   return 'good';
 }
 
+function slotStatus(slot) {
+  const history = Array.isArray(slot?.history) ? slot.history : [];
+  const latest = history[0] || null;
+  return slot?.latestJob?.status || (latest?.status === 'OUT_OF_RANGE' ? 'OUT_OF_RANGE' : latest ? 'SUCCESS' : 'PENDING');
+}
+
+function slotLatestActivity(slot) {
+  const history = Array.isArray(slot?.history) ? slot.history : [];
+  const latest = history[0] || null;
+  const job = slot?.latestJob || null;
+  return latest?.measured_at || job?.finished_at || job?.started_at || job?.requested_at || null;
+}
+
+function latestCompanyActivity(company) {
+  const candidates = company.slots.map(slotLatestActivity).filter(Boolean);
+  if (!candidates.length) return null;
+  return candidates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0];
+}
+
 function deltaMarkup(history) {
   const delta = rankDelta(history);
   if (!delta) return '<span class="rank-delta neutral">변동 데이터 없음</span>';
   if (delta.direction === 'same') return '<span class="rank-delta neutral">변동 없음</span>';
   const arrow = delta.direction === 'up' ? '↑' : '↓';
   return `<span class="rank-delta ${delta.direction}">${arrow} ${delta.amount}</span>`;
-}
-
-function historyMarkup(history = []) {
-  if (!history.length) return '<div class="history-empty">첫 측정이 완료되면 날짜별 순위 이력이 표시됩니다.</div>';
-  return `
-    <div class="history-strip">
-      ${history.slice(0, 7).map((row) => `
-        <div class="history-day">
-          <span>${escapeHtml(formatDate(row.measured_date))}</span>
-          <strong>${escapeHtml(formatRankResult(row))}</strong>
-        </div>`).join('')}
-    </div>`;
 }
 
 function metricPeriodTabsMarkup(activePeriod) {
@@ -113,14 +122,14 @@ function saveChangeMarkup(change) {
   return `<span class="metric-change raw-change">${escapeHtml(change.from)} → ${escapeHtml(change.to)}</span>`;
 }
 
-function metricPanelMarkup(slot) {
-  const period = metricPeriodBySlot.get(slot.id) || '1';
-  const windows = buildMetricWindows(slot.placeMetrics || [], kstToday());
+function metricPanelMarkup(company) {
+  const period = metricPeriodByCompany.get(company.targetMid) || '1';
+  const windows = buildMetricWindows(company.placeMetrics || [], kstToday());
   const current = windows.current;
   const changes = windows.periods[period];
 
   return `
-    <section class="place-metrics-panel" aria-label="플레이스 지표 변화">
+    <section class="place-metrics-panel company-metrics-panel" aria-label="플레이스 지표 변화">
       <div class="place-metrics-head">
         <div><span>오늘 기준</span><strong>플레이스 지표 변화</strong></div>
         ${metricPeriodTabsMarkup(period)}
@@ -146,45 +155,89 @@ function metricPanelMarkup(slot) {
     </section>`;
 }
 
-function slotMarkup(slot, index = 0) {
-  const history = Array.isArray(slot.history) ? slot.history : [];
-  const latest = history[0] || null;
-  const job = slot.latestJob || null;
-  const status = job?.status || (latest?.status === 'OUT_OF_RANGE' ? 'OUT_OF_RANGE' : latest ? 'SUCCESS' : 'PENDING');
-  const busy = pendingStatuses.has(status);
-  const latestMeasuredAt = latest?.measured_at || job?.finished_at || job?.started_at || job?.requested_at;
-  const placeLabel = slot.placeName || `MID ${slot.targetMid}`;
+function companyHealthMarkup(company) {
+  const counts = company.slots.reduce((result, slot) => {
+    const status = slotStatus(slot);
+    if (pendingStatuses.has(status)) result.pending += 1;
+    else if (issueStatuses.has(status)) result.issue += 1;
+    else result.good += 1;
+    return result;
+  }, { good: 0, pending: 0, issue: 0 });
 
   return `
-    <article class="slot-card is-clickable" style="--card-index:${index}" data-slot-id="${escapeHtml(slot.id)}" role="button" tabindex="0" aria-label="${escapeHtml(slot.keyword)} 누적 변화 보기">
-      <div class="slot-card-head">
-        <div class="slot-identity">
-          <div class="slot-keyword-row">
+    <div class="company-health" aria-label="업체 키워드 상태 요약">
+      ${counts.good ? `<span class="company-health-chip good">정상 ${counts.good}</span>` : ''}
+      ${counts.pending ? `<span class="company-health-chip waiting">조회 중 ${counts.pending}</span>` : ''}
+      ${counts.issue ? `<span class="company-health-chip issue">확인 필요 ${counts.issue}</span>` : ''}
+    </div>`;
+}
+
+function keywordRowMarkup(slot) {
+  const history = Array.isArray(slot.history) ? slot.history : [];
+  const latest = history[0] || null;
+  const status = slotStatus(slot);
+  const busy = pendingStatuses.has(status);
+  const latestMeasuredAt = slotLatestActivity(slot);
+
+  return `
+    <div class="keyword-rank-row ${issueStatuses.has(status) ? 'has-issue' : ''}" data-slot-id="${escapeHtml(slot.id)}">
+      <button class="keyword-detail-button" type="button" data-slot-id="${escapeHtml(slot.id)}" aria-label="${escapeHtml(slot.keyword)} 누적 변화 상세 보기">
+        <div class="keyword-rank-copy">
+          <div class="keyword-rank-title">
             <span class="keyword-chip">${escapeHtml(slot.keyword)}</span>
             <span class="status-chip ${statusTone(status)}"><i></i>${escapeHtml(jobLabel(status))}</span>
           </div>
-          <h3>${escapeHtml(placeLabel)}</h3>
-          <p>MID ${escapeHtml(slot.targetMid)}</p>
+          <span class="keyword-recent">최근 측정 ${escapeHtml(formatTime(latestMeasuredAt))}</span>
         </div>
-        <div class="rank-now">
+        <div class="keyword-rank-value">
           <span>현재 순위</span>
           <strong>${escapeHtml(formatRankResult(latest))}</strong>
           ${deltaMarkup(history)}
         </div>
-      </div>
-
-      ${metricPanelMarkup(slot)}
-
-      <div class="slot-meta">
-        <span><b>최근 측정</b>${escapeHtml(formatTime(latestMeasuredAt))}</span>
-        <span><b>순위 기록</b>${history.length}일</span>
-        <span class="history-hint">상세 그래프 →</span>
+        <span class="keyword-detail-hint">상세 그래프 <b>→</b></span>
+      </button>
+      <div class="keyword-actions">
         <button class="button button-mini recheck-button" type="button" data-slot-id="${escapeHtml(slot.id)}" ${busy ? 'disabled' : ''}>${busy ? '조회 중…' : '다시 조회'}</button>
         <button class="button button-mini delete-button" type="button" data-slot-id="${escapeHtml(slot.id)}" ${busy ? 'disabled' : ''}>삭제</button>
       </div>
+      ${issueStatuses.has(status) ? `<p class="keyword-issue-copy">최근 조회가 완료되지 않았습니다.${slot.latestJob?.error_code ? ` · ${escapeHtml(slot.latestJob.error_code)}` : ''}</p>` : ''}
+    </div>`;
+}
 
-      ${historyMarkup(history)}
-      ${issueStatuses.has(status) ? `<p class="issue-copy">최근 조회가 완료되지 않았습니다. 기존 정상 순위와 플레이스 지표 기록은 유지됩니다.${job?.error_code ? ` · ${escapeHtml(job.error_code)}` : ''}</p>` : ''}
+function companyMarkup(company, index = 0) {
+  const mid = company.targetMid || `unknown-${index}`;
+  const expanded = expandedCompanies.has(mid);
+  const placeLabel = company.placeName || `MID ${mid}`;
+  const recent = latestCompanyActivity(company);
+  const listId = `company-keywords-${mid.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+
+  return `
+    <article class="company-card ${expanded ? 'is-expanded' : ''}" style="--card-index:${index}" data-company-mid="${escapeHtml(mid)}">
+      <button class="company-toggle" type="button" data-company-mid="${escapeHtml(mid)}" aria-expanded="${expanded}" aria-controls="${escapeHtml(listId)}">
+        <div class="company-identity">
+          <div class="company-label-row">
+            <span class="company-label">업체</span>
+            <span class="company-keyword-count">키워드 ${company.slots.length}개</span>
+          </div>
+          <h3>${escapeHtml(placeLabel)}</h3>
+          <p>MID ${escapeHtml(mid)} <span>·</span> 최근 측정 ${escapeHtml(formatTime(recent))}</p>
+        </div>
+        <div class="company-toggle-side">
+          ${companyHealthMarkup(company)}
+          <span class="company-chevron" aria-hidden="true">⌄</span>
+        </div>
+      </button>
+
+      ${metricPanelMarkup(company)}
+
+      <div class="company-keyword-list" id="${escapeHtml(listId)}" aria-hidden="${!expanded}" ${expanded ? '' : 'inert'}>
+        <div class="company-keyword-list-inner">
+          <div class="keyword-list-head" aria-hidden="true">
+            <span>추적 키워드</span><span>순위</span><span>관리</span>
+          </div>
+          ${company.slots.map(keywordRowMarkup).join('')}
+        </div>
+      </div>
     </article>`;
 }
 
@@ -195,27 +248,37 @@ function renderMetrics() {
   $('metricIssues').textContent = slots.filter((slot) => issueStatuses.has(slot.latestJob?.status)).length;
 }
 
+function setCompanyExpanded(card, button, expanded) {
+  const mid = button.dataset.companyMid;
+  const list = card.querySelector('.company-keyword-list');
+  if (expanded) expandedCompanies.add(mid);
+  else expandedCompanies.delete(mid);
+  card.classList.toggle('is-expanded', expanded);
+  button.setAttribute('aria-expanded', String(expanded));
+  list?.setAttribute('aria-hidden', String(!expanded));
+  if (expanded) list?.removeAttribute('inert');
+  else list?.setAttribute('inert', '');
+}
+
 function bindSlotInteractions() {
-  document.querySelectorAll('.slot-card').forEach((card) => {
-    const open = () => openHistory(card.dataset.slotId);
-    card.addEventListener('click', (event) => {
-      if (event.target.closest('button')) return;
-      open();
+  document.querySelectorAll('.company-toggle').forEach((button) => {
+    button.addEventListener('click', () => {
+      const card = button.closest('.company-card');
+      if (!card) return;
+      setCompanyExpanded(card, button, !expandedCompanies.has(button.dataset.companyMid));
     });
-    card.addEventListener('keydown', (event) => {
-      if ((event.key === 'Enter' || event.key === ' ') && !event.target.closest('button')) {
-        event.preventDefault();
-        open();
-      }
-    });
+  });
+
+  document.querySelectorAll('.keyword-detail-button').forEach((button) => {
+    button.addEventListener('click', () => openHistory(button.dataset.slotId));
   });
 
   document.querySelectorAll('[data-metric-period]').forEach((button) => {
     button.addEventListener('click', (event) => {
       event.stopPropagation();
-      const card = button.closest('.slot-card');
+      const card = button.closest('.company-card');
       if (!card) return;
-      metricPeriodBySlot.set(card.dataset.slotId, button.dataset.metricPeriod);
+      metricPeriodByCompany.set(card.dataset.companyMid, button.dataset.metricPeriod);
       renderSlots();
     });
   });
@@ -243,10 +306,11 @@ function bindSlotInteractions() {
 }
 
 function renderSlots() {
+  const companies = groupSlotsByCompany(slots);
   $('loadingState').classList.add('is-hidden');
   $('errorState').classList.add('is-hidden');
   $('emptyState').classList.toggle('is-hidden', slots.length !== 0);
-  $('slotGrid').innerHTML = slots.map(slotMarkup).join('');
+  $('slotGrid').innerHTML = companies.map(companyMarkup).join('');
   renderMetrics();
   bindSlotInteractions();
   scheduleAutoRefresh();
