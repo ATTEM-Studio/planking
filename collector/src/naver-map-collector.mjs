@@ -11,7 +11,6 @@ import { assertRankResult } from './types.mjs';
 const FIRST_PAGE_MARKER = '/p/api/search/allSearch';
 const RANK_GRAPHQL_MARKER = 'pcmap-api.place.naver.com/graphql';
 const SEARCH_GRAPHQL_MARKER = 'p-api.place.naver.com/graphql';
-const SEARCH_TEMPLATE_BOOTSTRAP_QUERY = '서울맛집';
 
 async function defaultBrowserFactory() {
   const { chromium } = await import('playwright');
@@ -151,16 +150,57 @@ async function waitForTemplate(page, getTemplate, timeoutMs) {
   return getTemplate();
 }
 
+function fallbackCategorySeed(rawCategory) {
+  const values = Array.isArray(rawCategory) ? rawCategory : [rawCategory];
+  for (let index = values.length - 1; index >= 0; index -= 1) {
+    const parts = String(values[index] ?? '')
+      .split(/[>,/|·]/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (parts.length) return parts[0];
+  }
+  return '';
+}
+
+function fallbackLocalitySeed(...addressValues) {
+  const addresses = addressValues.map((value) => String(value ?? '').trim()).filter(Boolean);
+  for (const address of addresses) {
+    const tokens = address.split(/\s+/).map((token) => token.replace(/[(),]/g, '')).filter(Boolean);
+    for (let index = tokens.length - 1; index >= 0; index -= 1) {
+      const match = tokens[index].match(/^(.+?)(?:동|읍|면|리|가)$/);
+      if (match?.[1]) return match[1];
+    }
+  }
+  for (const address of addresses) {
+    const tokens = address.split(/\s+/).map((token) => token.replace(/[(),]/g, '')).filter(Boolean);
+    for (let index = tokens.length - 1; index >= 0; index -= 1) {
+      if (/^[가-힣0-9]+(?:구|군|시)$/.test(tokens[index])) return tokens[index];
+    }
+  }
+  return '';
+}
+
 function fallbackTemplateSeeds(keyword, mapFirstPage) {
   const first = normalizeOrganicItems(mapFirstPage)[0];
   const raw = first?.raw && typeof first.raw === 'object' ? first.raw : {};
-  const address = String(raw.commonAddress ?? raw.address ?? '').trim();
-  const category = String(raw.category ?? raw.businessCategory ?? '').trim();
+  const category = fallbackCategorySeed(raw.category ?? raw.businessCategory);
+  const locality = fallbackLocalitySeed(
+    raw.shortAddress,
+    raw.abbrAddress,
+    raw.commonAddress,
+    raw.address,
+    raw.roadAddress,
+  );
+  const address = String(raw.commonAddress ?? raw.address ?? raw.roadAddress ?? '').trim();
   const name = String(first?.name ?? '').trim();
   const candidates = [String(keyword ?? '').trim()];
-  if (address && category) candidates.push(`${address} ${category}`);
+  if (locality && category) {
+    candidates.push(`${locality}${category}`);
+    candidates.push(`${locality} ${category}`);
+  } else if (address && category) {
+    candidates.push(`${address} ${category}`);
+  }
   if (name) candidates.push(name);
-  candidates.push(SEARCH_TEMPLATE_BOOTSTRAP_QUERY);
   return [...new Set(candidates.filter(Boolean))];
 }
 
