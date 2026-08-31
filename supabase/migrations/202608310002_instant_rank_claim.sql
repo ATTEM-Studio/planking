@@ -49,6 +49,34 @@ revoke all on function public.claim_rank_job(uuid) from anon;
 revoke all on function public.claim_rank_job(uuid) from authenticated;
 grant execute on function public.claim_rank_job(uuid) to service_role;
 
+create or replace function public.requeue_stale_rank_jobs()
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  recovered_count integer := 0;
+begin
+  update public.rank_jobs
+     set status = 'PENDING',
+         started_at = null,
+         finished_at = null,
+         error_code = null,
+         error_message = null
+   where status = 'RUNNING'
+     and started_at < now() - interval '10 minutes';
+
+  get diagnostics recovered_count = row_count;
+  return recovered_count;
+end;
+$$;
+
+revoke all on function public.requeue_stale_rank_jobs() from public;
+revoke all on function public.requeue_stale_rank_jobs() from anon;
+revoke all on function public.requeue_stale_rank_jobs() from authenticated;
+grant execute on function public.requeue_stale_rank_jobs() to service_role;
+
 create or replace function public.enqueue_daily_rank_jobs()
 returns integer
 language plpgsql
