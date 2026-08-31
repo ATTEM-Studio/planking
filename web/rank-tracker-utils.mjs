@@ -150,6 +150,38 @@ export function buildMetricChartPoints(history, field, width = 760, height = 220
   });
 }
 
+export function groupSlotsByCompany(slots) {
+  const groups = [];
+  const byMid = new Map();
+
+  for (const slot of Array.isArray(slots) ? slots : []) {
+    const targetMid = String(slot?.targetMid ?? slot?.target_mid ?? '').trim();
+    const fallbackKey = `slot:${String(slot?.id ?? groups.length)}`;
+    const key = targetMid || fallbackKey;
+    let group = byMid.get(key);
+
+    if (!group) {
+      group = {
+        targetMid,
+        placeName: String(slot?.placeName ?? '').trim(),
+        placeMetrics: Array.isArray(slot?.placeMetrics) ? slot.placeMetrics : [],
+        slots: [],
+      };
+      byMid.set(key, group);
+      groups.push(group);
+    } else {
+      const placeName = String(slot?.placeName ?? '').trim();
+      if (!group.placeName && placeName) group.placeName = placeName;
+      const candidateMetrics = Array.isArray(slot?.placeMetrics) ? slot.placeMetrics : [];
+      if (candidateMetrics.length > group.placeMetrics.length) group.placeMetrics = candidateMetrics;
+    }
+
+    group.slots.push(slot);
+  }
+
+  return groups;
+}
+
 export function jobLabel(status) {
   return ({
     PENDING: '조회 대기',
