@@ -17,6 +17,14 @@ function makeRepository(job = null) {
 const job = { id: 'job-1', slotId: 'slot-1', keyword: '경성대맛집', targetMid: '1340244014' };
 const now = new Date('2026-08-30T07:00:00Z');
 
+function foundCollector() {
+  return {
+    async collect() {
+      return { status: 'FOUND', rank: 19, pagesScanned: 1, itemsScanned: 19, matchedMid: job.targetMid };
+    },
+  };
+}
+
 test('no pending job returns idle without calling collector', async () => {
   const repository = makeRepository(null);
   let called = 0;
@@ -46,6 +54,20 @@ test('FOUND upserts rank and place metrics then completes the job as SUCCESS', a
   ]);
   assert.equal(repository.calls[3][0], 'complete');
   assert.equal(repository.calls[3][2].status, 'SUCCESS');
+});
+
+test('measurement day stays on previous KST date until 13:59', async () => {
+  const repository = makeRepository(job);
+  await runOne({ repository, collector: foundCollector(), now: new Date('2026-08-31T04:59:59Z') });
+  const history = repository.calls.find(call => call[0] === 'history');
+  assert.equal(history[2], '2026-08-30');
+});
+
+test('measurement day switches at 14:00 KST', async () => {
+  const repository = makeRepository(job);
+  await runOne({ repository, collector: foundCollector(), now: new Date('2026-08-31T05:00:00Z') });
+  const history = repository.calls.find(call => call[0] === 'history');
+  assert.equal(history[2], '2026-08-31');
 });
 
 test('FOUND without exposed metrics still completes without fabricating a metrics row', async () => {
