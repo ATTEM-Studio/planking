@@ -15,6 +15,16 @@ function authHeaders(key) {
   return headers;
 }
 
+function normalizeClaimedJob(row) {
+  if (!row) return null;
+  return {
+    id: String(row.job_id ?? row.id),
+    slotId: String(row.slot_id),
+    keyword: String(row.keyword),
+    targetMid: String(row.target_mid),
+  };
+}
+
 export class SupabaseRankRepository {
   constructor({ url, serviceRoleKey, fetchImpl = fetch }) {
     this.url = required(url, 'url').replace(/\/$/, '');
@@ -56,14 +66,15 @@ export class SupabaseRankRepository {
       method: 'POST',
       body: '{}',
     });
-    const row = Array.isArray(rows) ? rows[0] : rows;
-    if (!row) return null;
-    return {
-      id: String(row.job_id ?? row.id),
-      slotId: String(row.slot_id),
-      keyword: String(row.keyword),
-      targetMid: String(row.target_mid),
-    };
+    return normalizeClaimedJob(Array.isArray(rows) ? rows[0] : rows);
+  }
+
+  async claimJobById(jobId) {
+    const rows = await this._request('/rest/v1/rpc/claim_rank_job', {
+      method: 'POST',
+      body: JSON.stringify({ p_job_id: required(jobId, 'jobId') }),
+    });
+    return normalizeClaimedJob(Array.isArray(rows) ? rows[0] : rows);
   }
 
   async upsertHistory(slotId, measuredDate, result) {
