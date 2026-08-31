@@ -150,6 +150,18 @@ async function waitForTemplate(page, getTemplate, timeoutMs) {
   return getTemplate();
 }
 
+function fallbackTemplateSeeds(keyword, mapFirstPage) {
+  const first = normalizeOrganicItems(mapFirstPage)[0];
+  const raw = first?.raw && typeof first.raw === 'object' ? first.raw : {};
+  const address = String(raw.commonAddress ?? raw.address ?? '').trim();
+  const category = String(raw.category ?? raw.businessCategory ?? '').trim();
+  const name = String(first?.name ?? '').trim();
+  const candidates = [String(keyword ?? '').trim()];
+  if (address && category) candidates.push(`${address} ${category}`);
+  if (name) candidates.push(name);
+  return [...new Set(candidates.filter(Boolean))];
+}
+
 async function collectAlignedRankFromNaverSearch({
   context,
   keyword,
@@ -170,14 +182,21 @@ async function collectAlignedRankFromNaverSearch({
     if (!searchPage || typeof searchPage.evaluate !== 'function') return null;
 
     searchPage.on('request', (request) => {
-      if (!template) template = parseGetRestaurantsTemplate(request);
+      const candidate = parseGetRestaurantsTemplate(request);
+      if (candidate) template = candidate;
     });
 
-    await searchPage.goto(
-      `https://search.naver.com/search.naver?where=nexearch&query=${encodeURIComponent(cleanKeyword)}`,
-      { waitUntil: 'domcontentloaded', timeout: timeoutMs },
-    );
-    await waitForTemplate(searchPage, () => template, timeoutMs);
+    const seeds = fallbackTemplateSeeds(cleanKeyword, mapFirstPage);
+    const perSeedTimeout = Math.max(1500, Math.min(5000, Math.floor(timeoutMs / Math.max(1, seeds.length))));
+    for (const seed of seeds) {
+      template = null;
+      await searchPage.goto(
+        `https://search.naver.com/search.naver?where=nexearch&query=${encodeURIComponent(seed)}`,
+        { waitUntil: 'domcontentloaded', timeout: timeoutMs },
+      );
+      await waitForTemplate(searchPage, () => template, perSeedTimeout);
+      if (template) break;
+    }
     if (!template) return null;
 
     const seen = new Set();
