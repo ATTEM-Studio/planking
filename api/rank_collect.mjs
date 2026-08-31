@@ -16,7 +16,7 @@ function readJsonBody(request) {
   return {};
 }
 
-async function serverlessBrowserFactory() {
+export async function serverlessBrowserFactory() {
   const executablePath = await chromium.executablePath();
   return playwrightChromium.launch({
     args: chromium.args,
