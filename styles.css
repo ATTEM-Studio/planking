@@ -186,3 +186,92 @@ input:focus { border-color:rgba(53,57,232,.55); box-shadow:0 0 0 4px rgba(53,57,
 @media (prefers-reduced-motion:reduce) {
   *,*::before,*::after { scroll-behavior:auto !important; animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; }
 }
+
+/* 업체(MID) 중심 순위 현황 */
+.slot-grid { grid-template-columns:1fr; gap:13px; }
+.company-card { position:relative; overflow:hidden; border:1px solid rgba(225,227,242,.96); border-radius:25px; background:var(--card); box-shadow:var(--shadow); backdrop-filter:blur(16px); transition:border-color .18s ease,box-shadow .18s ease,transform .18s ease; animation:cardEnter .42s cubic-bezier(.22,.75,.25,1) both; animation-delay:calc(var(--card-index,0) * 45ms); }
+.company-card::before { content:""; position:absolute; width:180px; height:180px; top:-118px; right:-92px; border-radius:50%; background:radial-gradient(circle,rgba(53,57,232,.075),transparent 70%); pointer-events:none; }
+.company-card:hover { border-color:rgba(53,57,232,.14); box-shadow:0 24px 66px rgba(37,40,112,.11); }
+.company-card.is-expanded { border-color:rgba(53,57,232,.20); box-shadow:var(--shadow-hover); }
+.company-toggle { position:relative; z-index:1; width:100%; display:flex; align-items:center; justify-content:space-between; gap:22px; border:0; padding:20px 20px 0; background:transparent; color:inherit; text-align:left; cursor:pointer; }
+.company-toggle:active:not(:disabled) { transform:none; }
+.company-toggle:focus-visible { outline:none; }
+.company-toggle:focus-visible::after { content:""; position:absolute; inset:10px 10px -8px; border:2px solid rgba(53,57,232,.28); border-radius:18px; pointer-events:none; }
+.company-identity { min-width:0; }
+.company-label-row { display:flex; align-items:center; flex-wrap:wrap; gap:7px; margin-bottom:8px; }
+.company-label,.company-keyword-count { display:inline-flex; align-items:center; min-height:25px; border-radius:999px; padding:5px 9px; font-size:9px; font-weight:900; }
+.company-label { background:var(--accent); color:#fff; letter-spacing:.05em; }
+.company-keyword-count { background:var(--accent-soft); color:var(--accent); }
+.company-identity h3 { margin:0; max-width:700px; overflow:hidden; color:#20243e; font-size:20px; line-height:1.25; letter-spacing:-.032em; text-overflow:ellipsis; white-space:nowrap; }
+.company-identity p { margin:6px 0 0; color:var(--muted); font-size:10px; font-weight:700; }
+.company-identity p span { margin:0 4px; opacity:.45; }
+.company-toggle-side { display:flex; align-items:center; gap:13px; flex:0 0 auto; }
+.company-health { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:5px; }
+.company-health-chip { display:inline-flex; align-items:center; min-height:28px; padding:5px 9px; border-radius:9px; font-size:9px; font-weight:900; white-space:nowrap; }
+.company-health-chip.good { color:var(--good); background:#eaf7f1; }
+.company-health-chip.waiting { color:var(--waiting); background:#fff5df; }
+.company-health-chip.issue { color:var(--issue); background:#fff0f1; }
+.company-chevron { width:36px; height:36px; display:grid; place-items:center; border:1px solid var(--line); border-radius:11px; background:#fff; color:#646a84; font-size:20px; line-height:1; transition:transform .2s ease,background .2s ease,color .2s ease; }
+.company-card.is-expanded .company-chevron { transform:rotate(180deg); background:var(--accent-soft); color:var(--accent); }
+.company-metrics-panel { position:relative; z-index:1; margin:16px 20px 18px; }
+.company-keyword-list { display:grid; grid-template-rows:0fr; opacity:0; border-top:1px solid transparent; transition:grid-template-rows .26s cubic-bezier(.22,.78,.25,1),opacity .18s ease,border-color .18s ease; }
+.company-card.is-expanded .company-keyword-list { grid-template-rows:1fr; opacity:1; border-top-color:var(--line); }
+.company-keyword-list-inner { min-height:0; overflow:hidden; padding:0 20px; }
+.company-card.is-expanded .company-keyword-list-inner { padding-bottom:20px; }
+.keyword-list-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 3px 8px; color:#8a8fa5; font-size:9px; font-weight:850; }
+.keyword-list-head span:first-child { color:#555b76; }
+.keyword-list-head span:nth-child(2) { margin-left:auto; }
+.keyword-rank-row { position:relative; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:stretch; gap:10px; margin-top:7px; overflow:hidden; border:1px solid #e9eaf4; border-radius:15px; background:#fff; transition:border-color .15s ease,box-shadow .15s ease,transform .15s ease; }
+.keyword-rank-row:hover { border-color:rgba(53,57,232,.20); box-shadow:0 9px 24px rgba(37,40,112,.07); transform:translateY(-1px); }
+.keyword-rank-row.has-issue { border-color:#f2d9dc; }
+.keyword-detail-button { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) 118px 94px; align-items:center; gap:14px; border:0; padding:12px 4px 12px 14px; background:transparent; color:inherit; text-align:left; cursor:pointer; }
+.keyword-detail-button:active:not(:disabled) { transform:none; }
+.keyword-detail-button:focus-visible { outline:2px solid rgba(53,57,232,.28); outline-offset:-3px; border-radius:12px; }
+.keyword-rank-copy { min-width:0; }
+.keyword-rank-title { display:flex; align-items:center; flex-wrap:wrap; gap:6px; }
+.keyword-recent { display:block; margin-top:6px; color:var(--muted); font-size:9px; font-weight:700; }
+.keyword-rank-value { min-width:0; text-align:right; }
+.keyword-rank-value > span { display:block; color:var(--muted); font-size:8px; font-weight:800; }
+.keyword-rank-value > strong { display:inline-block; margin-top:1px; color:var(--accent); font-size:24px; line-height:1; letter-spacing:-.045em; }
+.keyword-rank-value .rank-delta { margin-left:5px; vertical-align:2px; }
+.keyword-detail-hint { justify-self:end; color:var(--accent); font-size:9px; font-weight:900; white-space:nowrap; }
+.keyword-detail-hint b { font-size:13px; }
+.keyword-actions { display:flex; align-items:center; gap:6px; padding:10px 11px 10px 0; }
+.keyword-actions .button { min-width:72px; margin:0; }
+.keyword-issue-copy { grid-column:1 / -1; margin:-2px 12px 10px; padding:8px 10px; border-radius:9px; background:#fff5f6; color:var(--issue); font-size:9px; line-height:1.45; }
+
+@media (max-width:760px) {
+  .company-card { border-radius:20px; }
+  .company-card:hover,.keyword-rank-row:hover { transform:none; }
+  .company-toggle { align-items:flex-start; gap:10px; padding:15px 13px 0; }
+  .company-label-row { margin-bottom:6px; }
+  .company-identity h3 { max-width:calc(100vw - 135px); font-size:17px; }
+  .company-identity p { font-size:9px; line-height:1.45; }
+  .company-toggle-side { gap:7px; }
+  .company-health { max-width:92px; gap:4px; }
+  .company-health-chip { min-height:24px; padding:4px 7px; font-size:8px; }
+  .company-chevron { width:34px; height:34px; border-radius:10px; }
+  .company-metrics-panel { margin:13px 13px 14px; }
+  .company-keyword-list-inner { padding-inline:13px; }
+  .company-card.is-expanded .company-keyword-list-inner { padding-bottom:13px; }
+  .keyword-list-head { padding:11px 1px 5px; }
+  .keyword-list-head span:not(:first-child) { display:none; }
+  .keyword-rank-row { grid-template-columns:1fr; gap:0; border-radius:14px; }
+  .keyword-detail-button { grid-template-columns:minmax(0,1fr) auto; gap:10px; padding:12px; }
+  .keyword-rank-copy { align-self:start; }
+  .keyword-rank-value { min-width:76px; }
+  .keyword-rank-value > strong { font-size:23px; }
+  .keyword-rank-value .rank-delta { display:block; margin:4px 0 0 auto; width:max-content; }
+  .keyword-detail-hint { grid-column:1 / -1; justify-self:start; margin-top:1px; padding-top:8px; border-top:1px solid #eff0f6; width:100%; }
+  .keyword-actions { padding:0 10px 10px; }
+  .keyword-actions .button { flex:1; min-height:42px; }
+  .keyword-issue-copy { margin:0 10px 10px; }
+}
+
+@media (max-width:420px) {
+  .company-health-chip.good { display:none; }
+  .company-health { max-width:76px; }
+  .company-identity h3 { max-width:calc(100vw - 120px); }
+  .company-metrics-panel .place-metric-item { padding-inline:6px; }
+  .company-metrics-panel .place-metric-item > strong { font-size:13px; }
+}
