@@ -29,6 +29,20 @@ function page1Response(items) {
   );
 }
 
+function makeMapItems() {
+  const items = Array.from({ length: 20 }, (_, index) => ({
+    id: String(1000 + index),
+    name: `Place ${index + 1}`,
+  }));
+  items[0] = {
+    ...items[0],
+    name: '메가MGC커피 부산하단역점',
+    address: '부산광역시 사하구 하단동 589-20 1층, 2층 메가MGC커피',
+    category: ['카페,디저트', '카페'],
+  };
+  return items;
+}
+
 function makeFallbackBrowser({ mapItems, searchItems, templateSeed }) {
   const mapResponseHandlers = [];
   const requestHandlers = [];
@@ -106,17 +120,7 @@ function makeFallbackBrowser({ mapItems, searchItems, templateSeed }) {
 }
 
 test('derives a local category seed from live map fields and replays the original keyword', async () => {
-  const mapItems = Array.from({ length: 20 }, (_, index) => ({
-    id: String(1000 + index),
-    name: `Place ${index + 1}`,
-  }));
-  mapItems[0] = {
-    ...mapItems[0],
-    name: '메가MGC커피 부산하단역점',
-    address: '부산광역시 사하구 하단동 589-20 1층, 2층 메가MGC커피',
-    category: ['카페,디저트', '카페'],
-  };
-
+  const mapItems = makeMapItems();
   const searchItems = [
     ...mapItems,
     { id: '1020', name: 'Place 21' },
@@ -146,4 +150,60 @@ test('derives a local category seed from live map fields and replays the origina
   assert.equal(result.rank, 25);
   assert.ok(fake.visitedSeeds.includes('하단카페'));
   assert.equal(fake.replayedQuery(), '하단역카페');
+});
+
+test('keeps INCOMPLETE when search fallback first-page MID order does not align with the map', async () => {
+  const mapItems = makeMapItems();
+  const mismatchedFirstPage = [...mapItems];
+  [mismatchedFirstPage[0], mismatchedFirstPage[1]] = [mismatchedFirstPage[1], mismatchedFirstPage[0]];
+  const searchItems = [
+    ...mismatchedFirstPage,
+    { id: '1020', name: 'Place 21' },
+    { id: '1021', name: 'Place 22' },
+    { id: '1022', name: 'Place 23' },
+    { id: '1023', name: 'Place 24' },
+    { id: '1328453904', name: 'Target' },
+  ];
+
+  const fake = makeFallbackBrowser({ mapItems, searchItems, templateSeed: '하단카페' });
+  const result = await new NaverMapCollector({
+    browserFactory: fake.browserFactory,
+    pageDelayMs: 0,
+    metricEnrichmentTimeoutMs: 50,
+  }).collect({
+    keyword: '하단역카페',
+    targetMid: '1328453904',
+    maxRank: 300,
+  });
+
+  assert.equal(result.status, 'INCOMPLETE');
+  assert.equal(result.rank, null);
+  assert.equal(result.itemsScanned, 20);
+});
+
+test('never promotes a fallback miss to OUT_OF_RANGE or 300+', async () => {
+  const mapItems = makeMapItems();
+  const searchItems = [
+    ...mapItems,
+    { id: '1020', name: 'Place 21' },
+    { id: '1021', name: 'Place 22' },
+    { id: '1022', name: 'Place 23' },
+    { id: '1023', name: 'Place 24' },
+  ];
+
+  const fake = makeFallbackBrowser({ mapItems, searchItems, templateSeed: '하단카페' });
+  const result = await new NaverMapCollector({
+    browserFactory: fake.browserFactory,
+    pageDelayMs: 0,
+    metricEnrichmentTimeoutMs: 50,
+  }).collect({
+    keyword: '하단역카페',
+    targetMid: 'missing-mid',
+    maxRank: 300,
+  });
+
+  assert.equal(result.status, 'INCOMPLETE');
+  assert.equal(result.rank, null);
+  assert.notEqual(result.status, 'OUT_OF_RANGE');
+  assert.equal(result.itemsScanned, 20);
 });
