@@ -15,6 +15,31 @@ function findItems(node) {
   return null;
 }
 
+function findItemByMid(node, targetMid) {
+  if (!node || typeof node !== 'object') return null;
+  const target = String(targetMid ?? '').trim();
+  if (!target) return null;
+
+  if (Array.isArray(node)) {
+    for (const value of node) {
+      const found = findItemByMid(value, target);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  const rawMid = node.mid ?? node.id ?? node.placeId ?? node.place_id;
+  if (rawMid !== undefined && rawMid !== null && String(rawMid).trim() === target) {
+    return node;
+  }
+
+  for (const value of Object.values(node)) {
+    const found = findItemByMid(value, target);
+    if (found) return found;
+  }
+  return null;
+}
+
 function isExplicitAd(item) {
   if (!item || typeof item !== 'object') return false;
   for (const key of ['isAd', 'ad', 'advertisement', 'isAdvertisement', 'promotion']) {
@@ -45,6 +70,10 @@ export function extractFirstPageItems(payload) {
 
 export function extractGraphqlItems(payload) {
   return findItems(payload) ?? [];
+}
+
+export function extractPlaceItemByMid(payload, targetMid) {
+  return findItemByMid(payload, targetMid);
 }
 
 export function extractPlaceMetrics(rawItem) {
