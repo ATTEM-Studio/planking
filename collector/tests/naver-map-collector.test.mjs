@@ -108,6 +108,40 @@ test('uses GraphQL response after page 2 click and preserves cumulative organic 
   assert.equal(result.rank, 51);
 });
 
+test('falls back to aligned Naver search ranking when map pagination is unavailable', async () => {
+  const first = Array.from({ length: 20 }, (_, i) => ({ id: String(1000 + i), name: `P${i}` }));
+  const browserFactory = async () => makeBrowser({ page1: page1Response(first) });
+  let fallbackCalls = 0;
+  const rankSearchFallback = async ({ keyword, targetMid, mapFirstPage, maxRank }) => {
+    fallbackCalls += 1;
+    assert.equal(keyword, '하단역카페');
+    assert.equal(targetMid, 'target');
+    assert.equal(mapFirstPage.length, 20);
+    assert.equal(maxRank, 300);
+    return {
+      status: 'FOUND',
+      rank: 25,
+      pagesScanned: 1,
+      itemsScanned: 25,
+      matchedMid: 'target',
+      errorCode: null,
+      errorMessage: null,
+      placeMetrics: {
+        visitorReviewCount: 635,
+        blogReviewCount: 31,
+        saveCountRaw: '100+',
+      },
+    };
+  };
+  const result = await new NaverMapCollector({ browserFactory, pageDelayMs: 0, rankSearchFallback }).collect({
+    keyword: '하단역카페', targetMid: 'target',
+  });
+  assert.equal(fallbackCalls, 1);
+  assert.equal(result.status, 'FOUND');
+  assert.equal(result.rank, 25);
+  assert.equal(result.placeMetrics.saveCountRaw, '100+');
+});
+
 test('missing next page before 300 results is INCOMPLETE, never OUT_OF_RANGE', async () => {
   const first = Array.from({ length: 20 }, (_, i) => ({ id: String(1000 + i), name: `P${i}` }));
   const browserFactory = async () => makeBrowser({ page1: page1Response(first) });
