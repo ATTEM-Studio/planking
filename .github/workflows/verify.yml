@@ -18,6 +18,8 @@ jobs:
           node-version: '22'
       - name: Install test runner
         run: python -m pip install pytest
+      - name: Install serverless dependencies
+        run: npm install
       - name: Python tests
         run: python -m pytest -q
       - name: JavaScript tests
@@ -25,7 +27,9 @@ jobs:
       - name: Compile Python
         run: python -m compileall -q api src
       - name: Check JavaScript syntax
-        run: node --check web/app.mjs
+        run: |
+          node --check web/app.mjs
+          node --check api/rank_collect.mjs
       - name: Install rank collector dependencies
         run: npm install --prefix collector
       - name: Rank collector tests
