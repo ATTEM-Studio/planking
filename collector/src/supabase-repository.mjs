@@ -25,6 +25,11 @@ function normalizeClaimedJob(row) {
   };
 }
 
+function countResult(result) {
+  const value = Array.isArray(result) ? result[0] : result;
+  return Number.isFinite(Number(value)) ? Number(value) : 0;
+}
+
 export class SupabaseRankRepository {
   constructor({ url, serviceRoleKey, fetchImpl = fetch }) {
     this.url = required(url, 'url').replace(/\/$/, '');
@@ -52,13 +57,20 @@ export class SupabaseRankRepository {
     return JSON.parse(text);
   }
 
+  async requeueStaleJobs() {
+    const result = await this._request('/rest/v1/rpc/requeue_stale_rank_jobs', {
+      method: 'POST',
+      body: '{}',
+    });
+    return countResult(result);
+  }
+
   async enqueueDailyJobs() {
     const result = await this._request('/rest/v1/rpc/enqueue_daily_rank_jobs', {
       method: 'POST',
       body: '{}',
     });
-    const value = Array.isArray(result) ? result[0] : result;
-    return Number.isFinite(Number(value)) ? Number(value) : 0;
+    return countResult(result);
   }
 
   async claimNextJob() {
