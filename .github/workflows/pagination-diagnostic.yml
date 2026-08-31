@@ -1,0 +1,23 @@
+name: Pagination Diagnostic
+
+on:
+  push:
+    branches:
+      - fix/pagination-fallback
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --prefix collector
+      - run: npm test --prefix collector
+      - run: npx --prefix collector playwright install --with-deps chromium
+      - run: node collector/scripts/diagnose-pagination.mjs
+        env:
+          KEYWORD: 하단역카페
