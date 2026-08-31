@@ -11,6 +11,7 @@ import { assertRankResult } from './types.mjs';
 const FIRST_PAGE_MARKER = '/p/api/search/allSearch';
 const RANK_GRAPHQL_MARKER = 'pcmap-api.place.naver.com/graphql';
 const SEARCH_GRAPHQL_MARKER = 'p-api.place.naver.com/graphql';
+const SEARCH_TEMPLATE_BOOTSTRAP_QUERY = '서울맛집';
 
 async function defaultBrowserFactory() {
   const { chromium } = await import('playwright');
@@ -159,6 +160,7 @@ function fallbackTemplateSeeds(keyword, mapFirstPage) {
   const candidates = [String(keyword ?? '').trim()];
   if (address && category) candidates.push(`${address} ${category}`);
   if (name) candidates.push(name);
+  candidates.push(SEARCH_TEMPLATE_BOOTSTRAP_QUERY);
   return [...new Set(candidates.filter(Boolean))];
 }
 
