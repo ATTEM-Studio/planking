@@ -17,6 +17,15 @@ function findItems(node) {
   return null;
 }
 
+function findRestaurantBusinessItems(payload) {
+  const operations = Array.isArray(payload) ? payload : [payload];
+  for (const operation of operations) {
+    const items = operation?.data?.restaurants?.businesses?.items;
+    if (Array.isArray(items)) return items;
+  }
+  return null;
+}
+
 function findItemByMid(node, targetMid) {
   if (!node || typeof node !== 'object') return null;
   const target = String(targetMid ?? '').trim();
@@ -87,7 +96,7 @@ export function getNaverTotalCount(items) {
 }
 
 export function extractGraphqlItems(payload) {
-  return findItems(payload) ?? [];
+  return findRestaurantBusinessItems(payload) ?? findItems(payload) ?? [];
 }
 
 export function extractPlaceItemByMid(payload, targetMid) {
