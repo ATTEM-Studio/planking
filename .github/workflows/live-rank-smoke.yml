@@ -1,0 +1,45 @@
+name: Live Rank Smoke
+
+on:
+  push:
+    branches:
+      - fix/rank-chain-and-response-resilience
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --prefix collector
+      - run: npx --prefix collector playwright install --with-deps chromium
+      - name: Verify live rank cases
+        run: |
+          node --input-type=module <<'NODE'
+          import { NaverMapCollector } from './collector/src/naver-map-collector.mjs';
+
+          const cases = [
+            { keyword: '사하구카페', targetMid: '1328453904', mustFind: true },
+            { keyword: '하단역카페', targetMid: '1328453904', mustFind: true },
+            { keyword: '황성동맛집', targetMid: '2076542131', mustFind: false },
+          ];
+
+          for (const item of cases) {
+            const result = await new NaverMapCollector().collect({
+              keyword: item.keyword,
+              targetMid: item.targetMid,
+              maxRank: 300,
+            });
+            console.log('LIVE_RANK_RESULT', JSON.stringify({ ...item, result }));
+            if (item.mustFind && result.status !== 'FOUND') {
+              throw new Error(`${item.keyword} expected FOUND but got ${result.status}: ${result.errorCode ?? ''} ${result.errorMessage ?? ''}`);
+            }
+            if (result.status === 'FAILED' && String(result.errorMessage ?? '').includes('Unexpected end of JSON input')) {
+              throw new Error(`${item.keyword} still failed on transient malformed JSON`);
+            }
+          }
+          NODE
