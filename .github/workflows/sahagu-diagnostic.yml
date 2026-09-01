@@ -1,0 +1,23 @@
+name: Sahagu Fallback Diagnostic
+
+on:
+  push:
+    branches:
+      - diagnostic/sahagu-fallback
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --prefix collector
+      - run: npx --prefix collector playwright install --with-deps chromium
+      - run: node collector/scripts/diagnose-sahagu-fallback.mjs
+        env:
+          KEYWORD: 사하구카페
+          TARGET_MID: '1328453904'
