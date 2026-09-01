@@ -58,17 +58,28 @@ function makeGyeongjuMapItems() {
   return items;
 }
 
+function continuationFromRank8(mapItems, { targetMid = null, targetRank = null, prefix = 'Next' } = {}) {
+  const items = [...mapItems.slice(7)]; // natural GraphQL starts at absolute organic rank 8
+  for (let rank = 21; rank <= 39; rank += 1) {
+    if (targetMid && rank === targetRank) items.push({ id: String(targetMid), name: 'Target' });
+    else items.push({ id: `${prefix}-${rank}`, name: `${prefix} ${rank}` });
+  }
+  return items.slice(0, 32);
+}
+
 function makeFallbackBrowser({
   mapItems,
   searchItems,
   templateSeed,
   templateSeeds = null,
   searchItemsBySeed = null,
+  templateStart = 8,
+  templateDisplay = 32,
 }) {
   const mapResponseHandlers = [];
   const requestHandlers = [];
   const visitedSeeds = [];
-  let replayedQuery = null;
+  const replayInputs = [];
   let activeSeed = null;
 
   const acceptedTemplateSeeds = new Set(templateSeeds ?? (templateSeed ? [templateSeed] : []));
@@ -108,18 +119,32 @@ function makeFallbackBrowser({
 
       const request = new FakeRequest('https://p-api.place.naver.com/graphql', [{
         operationName: 'getRestaurants',
-        variables: { input: { query: seed, start: 1, display: 20, nlu: `region:${seed}` } },
+        variables: {
+          input: {
+            query: seed,
+            start: templateStart,
+            display: templateDisplay,
+            nlu: `seed-region:${seed}`,
+          },
+        },
       }]);
       for (const handler of requestHandlers) handler(request);
     },
     async waitForTimeout() {},
     async evaluate(_callback, replay) {
       const operations = Array.isArray(replay.body) ? replay.body : [replay.body];
-      replayedQuery = operations.find((operation) => operation?.operationName === 'getRestaurants')?.variables?.input?.query ?? null;
+      const input = operations.find((operation) => operation?.operationName === 'getRestaurants')?.variables?.input ?? {};
+      replayInputs.push({
+        query: input.query ?? null,
+        start: input.start ?? null,
+        display: input.display ?? null,
+        nlu: input.nlu ?? null,
+        seed: activeSeed,
+      });
       const items = searchItemsBySeed?.[activeSeed] ?? searchItems;
       return {
         status: 200,
-        json: [{ data: { search: { result: { items } } } }],
+        json: [{ data: { restaurants: { businesses: { items } } } }],
       };
     },
     async close() {},
@@ -141,62 +166,52 @@ function makeFallbackBrowser({
   return {
     browserFactory: async () => browser,
     visitedSeeds,
-    replayedQuery: () => replayedQuery,
+    replayInputs,
   };
 }
 
-test('derives a local category seed from live map fields and replays the original keyword', async () => {
+test('uses Naver natural start/display and overlapping map ranks to find 하단역카페 at 25', async () => {
   const mapItems = makeMapItems();
-  const searchItems = [
-    ...mapItems,
-    { id: '1020', name: 'Place 21' },
-    { id: '1021', name: 'Place 22' },
-    { id: '1022', name: 'Place 23' },
-    { id: '1023', name: 'Place 24' },
-    { id: '1328453904', name: 'Target' },
-  ];
-
-  const fake = makeFallbackBrowser({
-    mapItems,
-    searchItems,
-    templateSeed: '하단카페',
+  const searchItems = continuationFromRank8(mapItems, {
+    targetMid: '1328453904',
+    targetRank: 25,
   });
+  const fake = makeFallbackBrowser({ mapItems, searchItems, templateSeed: '하단카페' });
 
   const result = await new NaverMapCollector({
     browserFactory: fake.browserFactory,
     pageDelayMs: 0,
     metricEnrichmentTimeoutMs: 50,
-  }).collect({
-    keyword: '하단역카페',
-    targetMid: '1328453904',
-    maxRank: 300,
-  });
+  }).collect({ keyword: '하단역카페', targetMid: '1328453904', maxRank: 300 });
 
   assert.equal(result.status, 'FOUND');
   assert.equal(result.rank, 25);
   assert.ok(fake.visitedSeeds.includes('하단카페'));
-  assert.equal(fake.replayedQuery(), '하단역카페');
+  assert.deepEqual(fake.replayInputs.at(-1), {
+    query: '하단역카페',
+    start: 8,
+    display: 32,
+    nlu: null,
+    seed: '하단카페',
+  });
 });
 
-test('retries with full map locality when the original search template is region-misaligned', async () => {
+test('retries another map-derived seed when the natural overlap is misaligned', async () => {
   const mapItems = makeGyeongjuMapItems();
-  const wrongRegionItems = [...mapItems];
-  [wrongRegionItems[0], wrongRegionItems[1]] = [wrongRegionItems[1], wrongRegionItems[0]];
-  const alignedItems = [
-    ...mapItems,
-    { id: '2020', name: 'Gyeongju Place 21' },
-    { id: '2021', name: 'Gyeongju Place 22' },
-    { id: '2022', name: 'Gyeongju Place 23' },
-    { id: '2023', name: 'Gyeongju Place 24' },
-    { id: '2076542131', name: '우후죽순용황점' },
-  ];
+  const wrong = continuationFromRank8(mapItems, { prefix: 'Wrong' });
+  [wrong[0], wrong[1]] = [wrong[1], wrong[0]];
+  const aligned = continuationFromRank8(mapItems, {
+    targetMid: '2076542131',
+    targetRank: 35,
+    prefix: 'Gyeongju',
+  });
 
   const fake = makeFallbackBrowser({
     mapItems,
     templateSeeds: ['황성동맛집', '경주시 황성동 양식'],
     searchItemsBySeed: {
-      황성동맛집: wrongRegionItems,
-      '경주시 황성동 양식': alignedItems,
+      황성동맛집: wrong,
+      '경주시 황성동 양식': aligned,
     },
   });
 
@@ -204,67 +219,48 @@ test('retries with full map locality when the original search template is region
     browserFactory: fake.browserFactory,
     pageDelayMs: 0,
     metricEnrichmentTimeoutMs: 50,
-  }).collect({
-    keyword: '황성동맛집',
-    targetMid: '2076542131',
-    maxRank: 300,
-  });
+  }).collect({ keyword: '황성동맛집', targetMid: '2076542131', maxRank: 300 });
 
   assert.equal(result.status, 'FOUND');
-  assert.equal(result.rank, 25);
+  assert.equal(result.rank, 35);
   assert.ok(fake.visitedSeeds.includes('경주시 황성동 양식'));
-  assert.equal(fake.replayedQuery(), '황성동맛집');
+  const acceptedReplay = fake.replayInputs.find((input) => input.seed === '경주시 황성동 양식');
+  assert.deepEqual(acceptedReplay, {
+    query: '황성동맛집',
+    start: 8,
+    display: 32,
+    nlu: null,
+    seed: '경주시 황성동 양식',
+  });
 });
 
-test('keeps INCOMPLETE when every search fallback seed remains misaligned with the map', async () => {
+test('keeps INCOMPLETE when every natural GraphQL overlap disagrees with the map', async () => {
   const mapItems = makeMapItems();
-  const mismatchedFirstPage = [...mapItems];
-  [mismatchedFirstPage[0], mismatchedFirstPage[1]] = [mismatchedFirstPage[1], mismatchedFirstPage[0]];
-  const searchItems = [
-    ...mismatchedFirstPage,
-    { id: '1020', name: 'Place 21' },
-    { id: '1021', name: 'Place 22' },
-    { id: '1022', name: 'Place 23' },
-    { id: '1023', name: 'Place 24' },
-    { id: '1328453904', name: 'Target' },
-  ];
-
+  const searchItems = continuationFromRank8(mapItems, { targetMid: '1328453904', targetRank: 25 });
+  [searchItems[0], searchItems[1]] = [searchItems[1], searchItems[0]];
   const fake = makeFallbackBrowser({ mapItems, searchItems, templateSeed: '하단카페' });
+
   const result = await new NaverMapCollector({
     browserFactory: fake.browserFactory,
     pageDelayMs: 0,
     metricEnrichmentTimeoutMs: 50,
-  }).collect({
-    keyword: '하단역카페',
-    targetMid: '1328453904',
-    maxRank: 300,
-  });
+  }).collect({ keyword: '하단역카페', targetMid: '1328453904', maxRank: 300 });
 
   assert.equal(result.status, 'INCOMPLETE');
   assert.equal(result.rank, null);
   assert.equal(result.itemsScanned, 20);
 });
 
-test('never promotes a fallback miss to OUT_OF_RANGE or 300+', async () => {
+test('never promotes a natural-offset fallback miss to OUT_OF_RANGE or 300+', async () => {
   const mapItems = makeMapItems();
-  const searchItems = [
-    ...mapItems,
-    { id: '1020', name: 'Place 21' },
-    { id: '1021', name: 'Place 22' },
-    { id: '1022', name: 'Place 23' },
-    { id: '1023', name: 'Place 24' },
-  ];
-
+  const searchItems = continuationFromRank8(mapItems, { prefix: 'NoTarget' });
   const fake = makeFallbackBrowser({ mapItems, searchItems, templateSeed: '하단카페' });
+
   const result = await new NaverMapCollector({
     browserFactory: fake.browserFactory,
     pageDelayMs: 0,
     metricEnrichmentTimeoutMs: 50,
-  }).collect({
-    keyword: '하단역카페',
-    targetMid: 'missing-mid',
-    maxRank: 300,
-  });
+  }).collect({ keyword: '하단역카페', targetMid: 'missing-mid', maxRank: 300 });
 
   assert.equal(result.status, 'INCOMPLETE');
   assert.equal(result.rank, null);
