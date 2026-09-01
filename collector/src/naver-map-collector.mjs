@@ -302,6 +302,7 @@ async function collectAlignedRankFromNaverSearch({
   mapFirstPage,
   maxRank,
   timeoutMs,
+  totalTimeoutMs = null,
 }) {
   const cleanKeyword = String(keyword ?? '').trim();
   const cleanMid = String(targetMid ?? '').trim();
@@ -319,11 +320,19 @@ async function collectAlignedRankFromNaverSearch({
     });
 
     const seeds = fallbackTemplateSeeds(cleanKeyword, mapFirstPage);
-    const fallbackDeadline = Date.now() + Math.max(0, Number(timeoutMs) || 0);
+    const perSeedTimeout = Math.max(1, Number(timeoutMs) || 1);
+    const explicitTotalTimeout = Number(totalTimeoutMs);
+    const fallbackTotalTimeout = Number.isFinite(explicitTotalTimeout) && explicitTotalTimeout > 0
+      ? explicitTotalTimeout
+      : perSeedTimeout * Math.max(1, seeds.length);
+    const fallbackDeadline = Date.now() + fallbackTotalTimeout;
 
     for (const seed of seeds) {
       template = null;
-      const navigationBudget = Math.max(0, fallbackDeadline - Date.now());
+      const navigationBudget = Math.min(
+        perSeedTimeout,
+        Math.max(0, fallbackDeadline - Date.now()),
+      );
       if (navigationBudget <= 0) break;
       await searchPage.goto(
         `https://search.naver.com/search.naver?where=nexearch&query=${encodeURIComponent(seed)}`,
@@ -331,6 +340,7 @@ async function collectAlignedRankFromNaverSearch({
       );
       const templateWaitBudget = Math.min(
         SEARCH_TEMPLATE_WAIT_MAX_MS,
+        perSeedTimeout,
         Math.max(0, fallbackDeadline - Date.now()),
       );
       if (templateWaitBudget <= 0) break;
@@ -465,6 +475,7 @@ export class NaverMapCollector {
     pageDelayMs = 600,
     metricEnrichmentTimeoutMs = 10000,
     rankFallbackTimeoutMs = metricEnrichmentTimeoutMs,
+    rankFallbackTotalTimeoutMs = null,
     rankSearchFallback = collectAlignedRankFromNaverSearch,
   } = {}) {
     this.browserFactory = browserFactory;
@@ -472,6 +483,7 @@ export class NaverMapCollector {
     this.pageDelayMs = pageDelayMs;
     this.metricEnrichmentTimeoutMs = metricEnrichmentTimeoutMs;
     this.rankFallbackTimeoutMs = rankFallbackTimeoutMs;
+    this.rankFallbackTotalTimeoutMs = rankFallbackTotalTimeoutMs;
     this.rankSearchFallback = rankSearchFallback;
   }
 
@@ -525,6 +537,7 @@ export class NaverMapCollector {
           mapFirstPage: pages[0] ?? [],
           maxRank,
           timeoutMs: this.rankFallbackTimeoutMs,
+          totalTimeoutMs: this.rankFallbackTotalTimeoutMs,
         });
         return result ? assertRankResult(result) : null;
       } catch {

@@ -54,7 +54,8 @@ export async function collectRankJob({
     timeoutMs: 15000,
     pageDelayMs: 450,
     metricEnrichmentTimeoutMs: 9000,
-    rankFallbackTimeoutMs: 30000,
+    rankFallbackTimeoutMs: 12000,
+    rankFallbackTotalTimeoutMs: 30000,
   });
   const result = await processClaimedJob({
     repository,
