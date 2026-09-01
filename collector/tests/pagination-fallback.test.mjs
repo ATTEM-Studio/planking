@@ -67,9 +67,20 @@ function continuationFromRank8(mapItems, { targetMid = null, targetRank = null, 
   return items.slice(0, 32);
 }
 
+function rankedWindow(mapItems, { start, display, targetMid = null, targetRank = null, prefix = 'Chain' }) {
+  const result = [];
+  for (let rank = start; rank < start + display; rank += 1) {
+    if (rank <= 20) result.push(mapItems[rank - 1]);
+    else if (targetMid && rank === targetRank) result.push({ id: String(targetMid), name: 'Target' });
+    else result.push({ id: `${prefix}-${rank}`, name: `${prefix} ${rank}` });
+  }
+  return result;
+}
+
 function makeFallbackBrowser({
   mapItems,
   searchItems,
+  searchItemsByStart = null,
   templateSeed,
   templateSeeds = null,
   searchItemsBySeed = null,
@@ -141,7 +152,9 @@ function makeFallbackBrowser({
         nlu: input.nlu ?? null,
         seed: activeSeed,
       });
-      const items = searchItemsBySeed?.[activeSeed] ?? searchItems;
+      const items = searchItemsByStart?.[Number(input.start)]
+        ?? searchItemsBySeed?.[activeSeed]
+        ?? searchItems;
       return {
         status: 200,
         json: [{ data: { restaurants: { businesses: { items } } } }],
@@ -194,6 +207,66 @@ test('uses Naver natural start/display and overlapping map ranks to find 하단�
     nlu: null,
     seed: '하단카페',
   });
+});
+
+test('continues beyond the natural block only when the next block has a verified overlap', async () => {
+  const mapItems = makeMapItems();
+  const start8 = rankedWindow(mapItems, { start: 8, display: 32, prefix: 'Sahagu' });
+  const start32 = rankedWindow(mapItems, {
+    start: 32,
+    display: 32,
+    targetMid: '1328453904',
+    targetRank: 41,
+    prefix: 'Sahagu',
+  });
+  const fake = makeFallbackBrowser({
+    mapItems,
+    searchItems: start8,
+    searchItemsByStart: { 8: start8, 32: start32 },
+    templateSeed: '사하구카페',
+  });
+
+  const result = await new NaverMapCollector({
+    browserFactory: fake.browserFactory,
+    pageDelayMs: 0,
+    metricEnrichmentTimeoutMs: 50,
+  }).collect({ keyword: '사하구카페', targetMid: '1328453904', maxRank: 300 });
+
+  assert.equal(result.status, 'FOUND');
+  assert.equal(result.rank, 41);
+  assert.deepEqual(fake.replayInputs.map(({ start, display }) => ({ start, display })), [
+    { start: 8, display: 32 },
+    { start: 32, display: 32 },
+  ]);
+});
+
+test('stops the synthetic continuation when its overlap disagrees with the trusted block', async () => {
+  const mapItems = makeMapItems();
+  const start8 = rankedWindow(mapItems, { start: 8, display: 32, prefix: 'Sahagu' });
+  const start32 = rankedWindow(mapItems, {
+    start: 32,
+    display: 32,
+    targetMid: '1328453904',
+    targetRank: 41,
+    prefix: 'Sahagu',
+  });
+  [start32[0], start32[1]] = [start32[1], start32[0]];
+  const fake = makeFallbackBrowser({
+    mapItems,
+    searchItems: start8,
+    searchItemsByStart: { 8: start8, 32: start32 },
+    templateSeed: '사하구카페',
+  });
+
+  const result = await new NaverMapCollector({
+    browserFactory: fake.browserFactory,
+    pageDelayMs: 0,
+    metricEnrichmentTimeoutMs: 50,
+  }).collect({ keyword: '사하구카페', targetMid: '1328453904', maxRank: 300 });
+
+  assert.equal(result.status, 'INCOMPLETE');
+  assert.equal(result.rank, null);
+  assert.notEqual(result.status, 'OUT_OF_RANGE');
 });
 
 test('retries another map-derived seed when the natural overlap is misaligned', async () => {
