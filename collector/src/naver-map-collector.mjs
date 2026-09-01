@@ -117,7 +117,9 @@ function rewriteGetRestaurantsTemplate(template, query, { start = 1, display = 5
     operation.variables.input.query = query;
     operation.variables.input.start = start;
     operation.variables.input.display = display;
-    delete operation.variables.input.nlu;
+    // Preserve Naver-generated regional/NLU context from the seed request.
+    // The original tracking query is still restored above and the result is
+    // accepted only after exact first-page MID alignment with Naver Map.
   }
   return { endpoint: template.endpoint, body };
 }
@@ -162,44 +164,78 @@ function fallbackCategorySeed(rawCategory) {
   return '';
 }
 
-function fallbackLocalitySeed(...addressValues) {
+function cleanAddressTokens(value) {
+  return String(value ?? '')
+    .trim()
+    .split(/\s+/)
+    .map((token) => token.replace(/[(),]/g, ''))
+    .filter(Boolean);
+}
+
+function fallbackLocalitySeeds(...addressValues) {
+  const candidates = [];
   const addresses = addressValues.map((value) => String(value ?? '').trim()).filter(Boolean);
+
   for (const address of addresses) {
-    const tokens = address.split(/\s+/).map((token) => token.replace(/[(),]/g, '')).filter(Boolean);
+    const tokens = cleanAddressTokens(address);
+    let neighborhoodIndex = -1;
     for (let index = tokens.length - 1; index >= 0; index -= 1) {
-      const match = tokens[index].match(/^(.+?)(?:동|읍|면|리|가)$/);
-      if (match?.[1]) return match[1];
+      if (/^[가-힣0-9]+(?:동|읍|면|리|가)$/.test(tokens[index])) {
+        neighborhoodIndex = index;
+        break;
+      }
+    }
+    if (neighborhoodIndex < 0) continue;
+
+    const neighborhood = tokens[neighborhoodIndex];
+    const shortNeighborhood = neighborhood.replace(/(?:동|읍|면|리|가)$/, '');
+    if (shortNeighborhood) candidates.push(shortNeighborhood);
+
+    for (let index = neighborhoodIndex - 1; index >= 0; index -= 1) {
+      if (!/^[가-힣0-9]+(?:구|군|시)$/.test(tokens[index])) continue;
+      candidates.push(`${tokens[index]} ${neighborhood}`);
+      break;
     }
   }
+
   for (const address of addresses) {
-    const tokens = address.split(/\s+/).map((token) => token.replace(/[(),]/g, '')).filter(Boolean);
+    const tokens = cleanAddressTokens(address);
     for (let index = tokens.length - 1; index >= 0; index -= 1) {
-      if (/^[가-힣0-9]+(?:구|군|시)$/.test(tokens[index])) return tokens[index];
+      if (/^[가-힣0-9]+(?:구|군|시)$/.test(tokens[index])) {
+        candidates.push(tokens[index]);
+        break;
+      }
     }
   }
-  return '';
+
+  return [...new Set(candidates.filter(Boolean))];
 }
 
 function fallbackTemplateSeeds(keyword, mapFirstPage) {
   const first = normalizeOrganicItems(mapFirstPage)[0];
   const raw = first?.raw && typeof first.raw === 'object' ? first.raw : {};
   const category = fallbackCategorySeed(raw.category ?? raw.businessCategory);
-  const locality = fallbackLocalitySeed(
+  const localities = fallbackLocalitySeeds(
     raw.shortAddress,
     raw.abbrAddress,
     raw.commonAddress,
     raw.address,
     raw.roadAddress,
   );
-  const address = String(raw.commonAddress ?? raw.address ?? raw.roadAddress ?? '').trim();
   const name = String(first?.name ?? '').trim();
   const candidates = [String(keyword ?? '').trim()];
-  if (locality && category) {
-    candidates.push(`${locality}${category}`);
-    candidates.push(`${locality} ${category}`);
-  } else if (address && category) {
-    candidates.push(`${address} ${category}`);
+
+  for (const locality of localities) {
+    if (!category) continue;
+    if (/\s/.test(locality)) {
+      candidates.push(`${locality} ${category}`);
+      candidates.push(`${locality}${category}`);
+    } else {
+      candidates.push(`${locality}${category}`);
+      candidates.push(`${locality} ${category}`);
+    }
   }
+
   if (name) candidates.push(name);
   return [...new Set(candidates.filter(Boolean))];
 }
@@ -230,6 +266,9 @@ async function collectAlignedRankFromNaverSearch({
 
     const seeds = fallbackTemplateSeeds(cleanKeyword, mapFirstPage);
     const perSeedTimeout = Math.max(1500, Math.min(5000, Math.floor(timeoutMs / Math.max(1, seeds.length))));
+    let alignedTemplate = null;
+    let alignedFirstReplay = null;
+
     for (const seed of seeds) {
       template = null;
       await searchPage.goto(
@@ -237,9 +276,20 @@ async function collectAlignedRankFromNaverSearch({
         { waitUntil: 'domcontentloaded', timeout: timeoutMs },
       );
       await waitForTemplate(searchPage, () => template, perSeedTimeout);
-      if (template) break;
+      if (!template) continue;
+
+      const firstDisplay = Math.min(50, maxRank);
+      const firstReplay = await replayGetRestaurants(searchPage, template, cleanKeyword, { start: 1, display: firstDisplay });
+      if (Number(firstReplay?.status) !== 200) continue;
+      const firstItems = extractGraphqlItems(firstReplay?.json);
+      if (!normalizeOrganicItems(firstItems).length) continue;
+      if (!alignedWithMapFirstPage(mapFirstPage, firstItems)) continue;
+
+      alignedTemplate = template;
+      alignedFirstReplay = firstReplay;
+      break;
     }
-    if (!template) return null;
+    if (!alignedTemplate || !alignedFirstReplay) return null;
 
     const seen = new Set();
     let cumulativeRank = 0;
@@ -247,12 +297,13 @@ async function collectAlignedRankFromNaverSearch({
 
     for (let start = 1; start <= maxRank; start += 50) {
       const display = Math.min(50, maxRank - start + 1);
-      const replay = await replayGetRestaurants(searchPage, template, cleanKeyword, { start, display });
+      const replay = start === 1
+        ? alignedFirstReplay
+        : await replayGetRestaurants(searchPage, alignedTemplate, cleanKeyword, { start, display });
       if (Number(replay?.status) !== 200) return null;
 
       const rawItems = extractGraphqlItems(replay?.json);
       const organicItems = normalizeOrganicItems(rawItems);
-      if (start === 1 && !alignedWithMapFirstPage(mapFirstPage, rawItems)) return null;
       if (!organicItems.length) return null;
 
       pagesScanned += 1;
