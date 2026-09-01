@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from http.server import BaseHTTPRequestHandler
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 MAX_BODY_BYTES = 2_000_000
@@ -26,7 +29,7 @@ def _supabase_headers(key: str) -> dict[str, str]:
     return headers
 
 
-def process_payload(payload: dict[str, Any], client: Any) -> dict[str, str]:
+def process_payload(payload: dict[str, Any], client: Any) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("request body must be a JSON object")
     keyword = _required_text(payload, "keyword")
@@ -40,6 +43,7 @@ def process_payload(payload: dict[str, Any], client: Any) -> dict[str, str]:
         "slotId": str(result["slotId"]),
         "jobId": str(result["jobId"]),
         "status": "PENDING",
+        "isNew": bool(result.get("isNew", False)),
     }
 
 
@@ -54,20 +58,36 @@ class SupabaseRankRequestClient:
         self.opener = opener
         self.timeout = timeout
 
-    def _post(self, path: str, payload: dict[str, Any], *, prefer: str) -> Any:
+    def _request(self, method: str, path: str, payload: dict[str, Any] | None = None, *, prefer: str | None = None) -> Any:
         headers = _supabase_headers(self.service_role_key)
-        headers["Prefer"] = prefer
+        if prefer:
+            headers["Prefer"] = prefer
+        data = None if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
         request = Request(
             f"{self.url}{path}",
-            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-            method="POST",
+            data=data,
+            method=method,
             headers=headers,
         )
         with self.opener(request, timeout=self.timeout) as response:
             raw = response.read()
         return json.loads(raw.decode("utf-8")) if raw else None
 
-    def enqueue_rank_request(self, keyword: str, target_mid: str, place_name: str | None) -> dict[str, str]:
+    def _post(self, path: str, payload: dict[str, Any], *, prefer: str) -> Any:
+        return self._request("POST", path, payload, prefer=prefer)
+
+    def _get(self, path: str) -> Any:
+        return self._request("GET", path)
+
+    def enqueue_rank_request(self, keyword: str, target_mid: str, place_name: str | None) -> dict[str, Any]:
+        existing_rows = self._get(
+            "/rest/v1/rank_slots"
+            f"?keyword=eq.{quote(keyword, safe='')}"
+            f"&target_mid=eq.{quote(target_mid, safe='')}"
+            "&select=id&limit=1"
+        )
+        is_new = not (isinstance(existing_rows, list) and existing_rows and existing_rows[0].get("id"))
+
         slot_payload: dict[str, Any] = {
             "keyword": keyword,
             "target_mid": target_mid,
@@ -90,7 +110,12 @@ class SupabaseRankRequestClient:
         )
         if not isinstance(job_rows, list) or not job_rows or not job_rows[0].get("id"):
             raise RuntimeError("Supabase did not return rank job id")
-        return {"slotId": slot_id, "jobId": str(job_rows[0]["id"]), "status": "PENDING"}
+        return {
+            "slotId": slot_id,
+            "jobId": str(job_rows[0]["id"]),
+            "status": "PENDING",
+            "isNew": is_new,
+        }
 
 
 def _client_from_env() -> SupabaseRankRequestClient:
@@ -98,6 +123,55 @@ def _client_from_env() -> SupabaseRankRequestClient:
         url=os.environ.get("SUPABASE_URL", ""),
         service_role_key=os.environ.get("SUPABASE_SERVICE_ROLE_KEY", ""),
     )
+
+
+def _attempt_immediate_collection(
+    job_id: str,
+    headers: Any,
+    *,
+    opener=urlopen,
+    timeout: int = 55,
+    attempts: int = 2,
+) -> dict[str, Any] | None:
+    host = str(headers.get("Host") or "").strip()
+    if not host:
+        return None
+    forwarded_proto = str(headers.get("X-Forwarded-Proto") or "https").strip().lower()
+    scheme = "http" if forwarded_proto == "http" else "https"
+    url = f"{scheme}://{host}/api/rank_collect"
+    body = json.dumps({"jobId": str(job_id)}, ensure_ascii=False).encode("utf-8")
+    request_headers = {"Content-Type": "application/json"}
+
+    # Same-origin preview deployments can be protected. Forward only the
+    # request's Vercel auth context so the internal collector call remains in
+    # the same authenticated session. Production normally has no such headers.
+    cookie = str(headers.get("Cookie") or "").strip()
+    if cookie:
+        request_headers["Cookie"] = cookie
+    bypass = str(headers.get("X-Vercel-Protection-Bypass") or "").strip()
+    if bypass:
+        request_headers["X-Vercel-Protection-Bypass"] = bypass
+
+    for attempt in range(max(1, attempts)):
+        request = Request(
+            url,
+            data=body,
+            method="POST",
+            headers=request_headers,
+        )
+        try:
+            with opener(request, timeout=timeout) as response:
+                raw = response.read()
+            result = json.loads(raw.decode("utf-8")) if raw else None
+            return result if isinstance(result, dict) else None
+        except HTTPError as exc:
+            if exc.code < 500 or attempt + 1 >= attempts:
+                return None
+        except (URLError, TimeoutError, OSError):
+            if attempt + 1 >= attempts:
+                return None
+        time.sleep(0.35)
+    return None
 
 
 class handler(BaseHTTPRequestHandler):
@@ -121,7 +195,20 @@ class handler(BaseHTTPRequestHandler):
             raw = self.rfile.read(content_length)
             payload = json.loads(raw.decode("utf-8"))
             result = process_payload(payload, _client_from_env())
-            self._send_json(202, result)
+
+            status_code = 202
+            if result.get("isNew"):
+                immediate = _attempt_immediate_collection(result["jobId"], self.headers)
+                if immediate and immediate.get("status") == "DONE":
+                    rank_result = immediate.get("result") if isinstance(immediate.get("result"), dict) else {}
+                    result["status"] = "SUCCESS" if rank_result.get("status") == "FOUND" else "OUT_OF_RANGE"
+                    result["immediate"] = True
+                    result["rank"] = rank_result.get("rank")
+                    status_code = 200
+                else:
+                    result["immediate"] = False
+
+            self._send_json(status_code, result)
         except (ValueError, json.JSONDecodeError) as exc:
             self._send_json(400, {"error": str(exc)})
         except Exception:

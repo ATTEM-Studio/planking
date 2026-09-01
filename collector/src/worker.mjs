@@ -33,7 +33,13 @@ function hasObservedMetrics(metrics) {
   return metrics && Object.values(metrics).some(value => value !== null && value !== undefined);
 }
 
-export async function processClaimedJob({ repository, collector, rawJob, now = new Date() }) {
+export async function processClaimedJob({
+  repository,
+  collector,
+  rawJob,
+  now = new Date(),
+  requeueOnFailure = false,
+}) {
   const job = normalizeJob(rawJob);
   if (!job.id || !job.slotId || !job.keyword || !job.targetMid) {
     throw new TypeError('claimed rank job is incomplete');
@@ -60,6 +66,8 @@ export async function processClaimedJob({ repository, collector, rawJob, now = n
       ...result,
       status: result.status === 'FOUND' ? 'SUCCESS' : 'OUT_OF_RANGE',
     });
+  } else if (requeueOnFailure && typeof repository.requeueJob === 'function') {
+    await repository.requeueJob(job.id, result);
   } else {
     await repository.failJob(job.id, result);
   }

@@ -4,5 +4,9 @@
   "type": "module",
   "engines": {
     "node": "22.x"
+  },
+  "dependencies": {
+    "@sparticuz/chromium": "149.0.0",
+    "playwright-core": "1.61.1"
   }
 }

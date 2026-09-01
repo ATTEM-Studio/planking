@@ -1,20 +1,24 @@
 from pathlib import Path
 
 
-def test_rank_recheck_uses_reliable_worker_queue_not_serverless_browser():
-    html = Path("index.html").read_text(encoding="utf-8")
-    app = Path("web/app.mjs").read_text(encoding="utf-8")
+def test_first_registration_api_completes_immediate_collection_server_side():
+    request_api = Path("api/rank_request.py").read_text(encoding="utf-8")
     package = Path("package.json").read_text(encoding="utf-8")
     vercel = Path("vercel.json").read_text(encoding="utf-8")
 
-    assert "매일 오후 2시(KST) 기준 갱신" in html
-    assert "첫 등록 즉시 조회" not in html
-    assert "등록 후 수집기가 순차 처리" in html
-    assert "/api/rank_request" in app
-    assert "/api/rank_collect" not in app
-    assert "조회 요청이 등록되었습니다" in app
-    assert "수집기가 순차 처리" in app
-    assert not Path("api/rank_collect.mjs").exists()
-    assert "@sparticuz/chromium" not in package
-    assert "playwright-core" not in package
-    assert '"api/**/*.mjs"' not in vercel
+    assert "isNew" in request_api
+    assert "_attempt_immediate_collection" in request_api
+    assert "/api/rank_collect" in request_api
+    assert Path("api/rank_collect.mjs").exists()
+    assert Path("api/chromium-runtime.mjs").exists()
+    assert "@sparticuz/chromium" in package
+    assert "playwright-core" in package
+    assert '"api/rank_collect.mjs"' in vercel
+
+
+def test_existing_keyword_recheck_remains_queue_only():
+    request_api = Path("api/rank_request.py").read_text(encoding="utf-8")
+
+    # Only a newly-created slot is synchronously collected. Existing tracked
+    # keywords continue to use the durable queue worker path.
+    assert 'if result.get("isNew")' in request_api

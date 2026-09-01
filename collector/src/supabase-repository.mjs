@@ -133,6 +133,20 @@ export class SupabaseRankRepository {
     });
   }
 
+  async requeueJob(jobId) {
+    await this._request(`/rest/v1/rank_jobs?id=eq.${encodeURIComponent(jobId)}`, {
+      method: 'PATCH',
+      headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({
+        status: 'PENDING',
+        started_at: null,
+        finished_at: null,
+        error_code: null,
+        error_message: null,
+      }),
+    });
+  }
+
   async failJob(jobId, result) {
     await this._request(`/rest/v1/rank_jobs?id=eq.${encodeURIComponent(jobId)}`, {
       method: 'PATCH',

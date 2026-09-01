@@ -1,0 +1,28 @@
+name: First Registration Smoke
+
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Register new keyword and require immediate completion
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://planking-choi18.vercel.app'
+          BODY_FILE="$(mktemp)"
+          STATUS="$(curl --silent --show-error --max-time 58 \
+            -o "$BODY_FILE" -w '%{http_code}' \
+            -X POST "$BASE/api/rank_request" \
+            -H 'Content-Type: application/json' \
+            --data '{"keyword":"하단역꿈카페","targetPlaceId":"1328453904","placeName":"꿈카페 하단지점"}')"
+          cat "$BODY_FILE"
+          echo
+          echo "HTTP $STATUS"
+          SLOT_ID="$(jq -r '.slotId // empty' "$BODY_FILE")"
+          trap 'if [ -n "${SLOT_ID:-}" ]; then curl --silent --show-error --max-time 20 -X DELETE "$BASE/api/rank_manage?slotId=$SLOT_ID" >/dev/null || true; fi' EXIT
+          test "$STATUS" = '200'
+          jq -e '.isNew == true and .immediate == true and (.status == "SUCCESS" or .status == "OUT_OF_RANGE")' "$BODY_FILE" >/dev/null
