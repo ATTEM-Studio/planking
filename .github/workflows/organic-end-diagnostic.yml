@@ -1,6 +1,9 @@
 name: Organic End Diagnostic
 
 on:
+  push:
+    branches:
+      - fix/organic-end-aware-ranking
   workflow_dispatch:
 
 jobs:
