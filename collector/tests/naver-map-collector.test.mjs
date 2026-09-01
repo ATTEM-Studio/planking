@@ -55,10 +55,12 @@ function makeBrowser({ page1, page2, content = '<html></html>', title = '', goto
   };
 }
 
-function page1Response(items, status = 200) {
+function page1Response(items, status = 200, totalCount = undefined) {
+  const place = { list: items };
+  if (totalCount !== undefined) place.totalCount = totalCount;
   return new FakeResponse(
     'https://map.naver.com/p/api/search/allSearch?query=x',
-    { result: { place: { list: items } } },
+    { result: { place } },
     status,
   );
 }
@@ -142,7 +144,46 @@ test('falls back to aligned Naver search ranking when map pagination is unavaila
   assert.equal(result.placeMetrics.saveCountRaw, '100+');
 });
 
-test('missing next page before 300 results is INCOMPLETE, never OUT_OF_RANGE', async () => {
+test('confirmed natural end returns OUT_OF_RANGE before 300 and ads never count', async () => {
+  const first = [
+    { id: 'ad-1', name: '광고 1', isAd: true },
+    { id: '1', name: 'organic 1' },
+    { id: 'ad-2', name: '광고 2', advertisement: { label: '광고' } },
+    { id: '2', name: 'organic 2' },
+  ];
+  const browserFactory = async () => makeBrowser({ page1: page1Response(first, 200, 2) });
+  let fallbackCalls = 0;
+  const result = await new NaverMapCollector({
+    browserFactory,
+    pageDelayMs: 0,
+    rankSearchFallback: async () => {
+      fallbackCalls += 1;
+      return null;
+    },
+  }).collect({ keyword: '짧은키워드', targetMid: 'missing' });
+
+  assert.equal(result.status, 'OUT_OF_RANGE');
+  assert.equal(result.rank, null);
+  assert.equal(result.itemsScanned, 2);
+  assert.equal(fallbackCalls, 0);
+});
+
+test('large totalCount with only first 20 available stays INCOMPLETE', async () => {
+  const first = Array.from({ length: 20 }, (_, i) => ({ id: String(1000 + i), name: `P${i}` }));
+  const browserFactory = async () => makeBrowser({ page1: page1Response(first, 200, 2894) });
+  const result = await new NaverMapCollector({
+    browserFactory,
+    pageDelayMs: 0,
+    rankSearchFallback: async () => null,
+  }).collect({ keyword: '황성동맛집', targetMid: 'missing' });
+
+  assert.equal(result.status, 'INCOMPLETE');
+  assert.equal(result.rank, null);
+  assert.equal(result.itemsScanned, 20);
+  assert.equal(result.errorCode, 'INCOMPLETE_TRAVERSAL');
+});
+
+test('missing next page without an end signal is INCOMPLETE, never OUT_OF_RANGE', async () => {
   const first = Array.from({ length: 20 }, (_, i) => ({ id: String(1000 + i), name: `P${i}` }));
   const browserFactory = async () => makeBrowser({ page1: page1Response(first) });
   const result = await new NaverMapCollector({ browserFactory, pageDelayMs: 0 }).collect({
