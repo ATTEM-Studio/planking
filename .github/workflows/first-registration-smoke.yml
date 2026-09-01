@@ -1,6 +1,10 @@
 name: First Registration Smoke
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/first-registration-smoke.yml'
   workflow_dispatch:
 
 jobs:
