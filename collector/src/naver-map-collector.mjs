@@ -11,6 +11,7 @@ import { assertRankResult } from './types.mjs';
 const FIRST_PAGE_MARKER = '/p/api/search/allSearch';
 const RANK_GRAPHQL_MARKER = 'pcmap-api.place.naver.com/graphql';
 const SEARCH_GRAPHQL_MARKER = 'p-api.place.naver.com/graphql';
+const SEARCH_CHAIN_OVERLAP = 8;
 
 async function defaultBrowserFactory() {
   const { chromium } = await import('playwright');
@@ -173,6 +174,17 @@ function alignedWithMapAtNaturalOffset(mapFirstPage, searchItems, start) {
   return true;
 }
 
+function alignedWithPreviousSearchWindow(previousItems, nextItems, overlap = SEARCH_CHAIN_OVERLAP) {
+  const previous = normalizeOrganicItems(previousItems);
+  const next = normalizeOrganicItems(nextItems);
+  if (!Number.isInteger(overlap) || overlap < 3) return false;
+  if (previous.length < overlap || next.length < overlap) return false;
+
+  const expected = previous.slice(-overlap);
+  const actual = next.slice(0, overlap);
+  return expected.every((item, index) => item.mid === actual[index]?.mid);
+}
+
 async function waitForTemplate(page, getTemplate, timeoutMs) {
   const started = Date.now();
   while (!getTemplate() && Date.now() - started < timeoutMs) {
@@ -267,6 +279,21 @@ function fallbackTemplateSeeds(keyword, mapFirstPage) {
   return [...new Set(candidates.filter(Boolean))];
 }
 
+function foundSearchResult({ cleanMid, rank, matched, windowsScanned }) {
+  const placeMetrics = extractPlaceMetrics(matched.raw);
+  const result = {
+    status: 'FOUND',
+    rank,
+    pagesScanned: 1 + windowsScanned,
+    itemsScanned: rank,
+    matchedMid: cleanMid,
+    errorCode: null,
+    errorMessage: null,
+  };
+  if (Object.values(placeMetrics).some((value) => value !== null)) result.placeMetrics = placeMetrics;
+  return assertRankResult(result);
+}
+
 async function collectAlignedRankFromNaverSearch({
   context,
   keyword,
@@ -305,38 +332,59 @@ async function collectAlignedRankFromNaverSearch({
       const natural = getNaturalWindow(template);
       if (!natural || natural.start > maxRank) continue;
 
-      // Keep the window Naver itself generated. Only replace the tracked query and
-      // remove seed-specific NLU; do not synthesize page 1/51/101 requests.
-      const replay = await replayGetRestaurants(searchPage, template, cleanKeyword);
-      if (Number(replay?.status) !== 200) continue;
+      // The first Search block must be anchored to the Map result order. Only after
+      // that anchor is proven may later blocks be requested, and every continuation
+      // must exactly repeat the previous block's trailing overlap before it is trusted.
+      const firstReplay = await replayGetRestaurants(searchPage, template, cleanKeyword);
+      if (Number(firstReplay?.status) !== 200) continue;
 
-      const rawItems = extractGraphqlItems(replay?.json);
-      const organicItems = normalizeOrganicItems(rawItems);
-      if (!organicItems.length) continue;
-      if (!alignedWithMapAtNaturalOffset(mapFirstPage, rawItems, natural.start)) continue;
+      const firstRawItems = extractGraphqlItems(firstReplay?.json);
+      let currentItems = normalizeOrganicItems(firstRawItems);
+      if (!currentItems.length) continue;
+      if (!alignedWithMapAtNaturalOffset(mapFirstPage, firstRawItems, natural.start)) continue;
 
-      const targetIndex = organicItems.findIndex((item) => item.mid === cleanMid);
-      if (targetIndex < 0) continue;
+      let currentStart = natural.start;
+      let windowsScanned = 1;
 
-      const rank = natural.start + targetIndex;
-      if (rank < 1 || rank > maxRank) continue;
+      while (currentStart <= maxRank) {
+        const targetIndex = currentItems.findIndex((item) => item.mid === cleanMid);
+        if (targetIndex >= 0) {
+          const rank = currentStart + targetIndex;
+          if (rank >= 1 && rank <= maxRank) {
+            return foundSearchResult({
+              cleanMid,
+              rank,
+              matched: currentItems[targetIndex],
+              windowsScanned,
+            });
+          }
+        }
 
-      const matched = organicItems[targetIndex];
-      const placeMetrics = extractPlaceMetrics(matched.raw);
-      const result = {
-        status: 'FOUND',
-        rank,
-        pagesScanned: 2,
-        itemsScanned: rank,
-        matchedMid: cleanMid,
-        errorCode: null,
-        errorMessage: null,
-      };
-      if (Object.values(placeMetrics).some((value) => value !== null)) result.placeMetrics = placeMetrics;
-      return assertRankResult(result);
+        if (currentItems.length < natural.display) break;
+        if (natural.display <= SEARCH_CHAIN_OVERLAP) break;
+
+        const nextStart = currentStart + natural.display - SEARCH_CHAIN_OVERLAP;
+        if (nextStart <= currentStart || nextStart > maxRank) break;
+
+        const nextReplay = await replayGetRestaurants(searchPage, template, cleanKeyword, {
+          start: nextStart,
+          display: natural.display,
+        });
+        if (Number(nextReplay?.status) !== 200) break;
+
+        const nextRawItems = extractGraphqlItems(nextReplay?.json);
+        const nextItems = normalizeOrganicItems(nextRawItems);
+        if (!nextItems.length) break;
+        if (!alignedWithPreviousSearchWindow(currentItems, nextRawItems)) break;
+
+        currentStart = nextStart;
+        currentItems = nextItems;
+        windowsScanned += 1;
+      }
     }
 
-    // A missing target in an aligned partial block is not proof of OUT_OF_RANGE.
+    // Even a chain of aligned partial blocks is not sufficient proof of 300+ when
+    // the target is absent. Keep the result safely INCOMPLETE in the caller.
     return null;
   } catch {
     return null;
@@ -426,15 +474,15 @@ export class NaverMapCollector {
     const pages = [];
     let browser;
     let context;
-    const capture = { first: [], graphql: [], blocked: false, parseError: null };
+    const capture = { first: [], graphql: [], blocked: false, parseFailures: 0 };
 
     const waitForCapture = async (kind, previousCount) => {
       const started = Date.now();
       while (capture[kind].length <= previousCount) {
         if (capture.blocked) throw Object.assign(new Error('naver blocked request'), { code: 'BLOCKED' });
-        if (capture.parseError) throw capture.parseError;
         if (Date.now() - started >= this.timeoutMs) {
-          const error = new Error(`timeout waiting for ${kind} response`);
+          const suffix = capture.parseFailures > 0 ? ` after ${capture.parseFailures} malformed response(s)` : '';
+          const error = new Error(`timeout waiting for ${kind} response${suffix}`);
           error.name = 'TimeoutError';
           throw error;
         }
@@ -491,8 +539,11 @@ export class NaverMapCollector {
           const payload = await response.json();
           if (url.includes(FIRST_PAGE_MARKER)) capture.first.push(extractFirstPageItems(payload));
           else capture.graphql.push(extractGraphqlItems(payload));
-        } catch (error) {
-          capture.parseError = error;
+        } catch {
+          // Naver occasionally terminates an otherwise matching response body early.
+          // A later valid response from the same navigation is still usable, so keep
+          // waiting instead of permanently poisoning the entire collection attempt.
+          capture.parseFailures += 1;
         }
       });
 
