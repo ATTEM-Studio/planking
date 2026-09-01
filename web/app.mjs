@@ -346,18 +346,6 @@ async function refreshSlots({ silent = false } = {}) {
   }
 }
 
-async function runInstantCollection(jobId) {
-  const response = await fetch('/api/rank_collect', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jobId }),
-  });
-  const data = await response.json();
-  if (response.status === 409) return { claimedElsewhere: true, data };
-  if (!response.ok) throw new Error(data.error || '즉시 조회에 실패했습니다.');
-  return { claimedElsewhere: false, data };
-}
-
 async function queueRankRequest(keyword, targetMid, placeName, button = null) {
   const idleLabel = button?.classList?.contains('recheck-button') ? '다시 조회' : '추적 시작';
   if (button) {
@@ -373,27 +361,9 @@ async function queueRankRequest(keyword, targetMid, placeName, button = null) {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || '순위 조회 요청에 실패했습니다.');
 
-    if (button) button.textContent = '즉시 조회 중…';
-    setFormStatus('즉시 조회 중입니다. 첫 결과를 확인하고 있습니다.');
+    if (button) button.textContent = '조회 대기…';
+    setFormStatus('조회 요청이 등록되었습니다. 검증된 수집기가 순차 처리하며 결과가 들어오는 즉시 화면에 반영됩니다.');
     await refreshSlots({ silent: true });
-
-    let instant;
-    try {
-      instant = await runInstantCollection(data.jobId);
-    } catch (error) {
-      setFormStatus('즉시 조회가 지연되고 있습니다. 등록은 완료되었으며 예약 수집기가 이어서 처리합니다.', true);
-      await refreshSlots({ silent: true });
-      return data;
-    }
-
-    await refreshSlots({ silent: true });
-    if (instant.claimedElsewhere) {
-      setFormStatus('이미 다른 수집기가 조회를 시작했습니다. 결과가 들어오는 즉시 화면에 반영됩니다.');
-    } else if (['FOUND', 'OUT_OF_RANGE'].includes(instant.data?.result?.status)) {
-      setFormStatus('첫 조회가 완료되었습니다. 이후 매일 오후 2시(KST)에 자동 측정됩니다.');
-    } else {
-      setFormStatus('첫 조회가 완료되지 않았습니다. 현재 상태를 확인해 주세요.', true);
-    }
     return data;
   } finally {
     if (button) {
