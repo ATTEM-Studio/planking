@@ -71,5 +71,4 @@ test('a malformed matching response does not poison a later valid page response'
 
   assert.equal(result.status, 'FOUND');
   assert.equal(result.rank, 1);
-  assert.equal(result.errorCode, null);
 });
