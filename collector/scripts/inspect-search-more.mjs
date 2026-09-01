@@ -23,7 +23,19 @@ function compactInput(input) {
   };
 }
 
-async function runClick(context, keyword, index) {
+function isPlaceModuleMoreHref(href) {
+  try {
+    const url = new URL(href);
+    return url.hostname === 'search.naver.com'
+      && url.pathname === '/search.naver'
+      && url.searchParams.get('where') === 'nexearch'
+      && url.hash === '#';
+  } catch {
+    return false;
+  }
+}
+
+async function runClick(context, keyword, candidateIndex) {
   const page = await context.newPage();
   const requests = [];
   const responses = [];
@@ -42,7 +54,7 @@ async function runClick(context, keyword, index) {
       const organic = normalizeOrganicItems(extractGraphqlItems(payload));
       responses.push({
         status: response.status(),
-        mids: organic.map((item) => item.mid).slice(0, 80),
+        mids: organic.map((item) => item.mid).slice(0, 100),
       });
     } catch {}
   });
@@ -50,36 +62,42 @@ async function runClick(context, keyword, index) {
   await page.goto(`https://search.naver.com/search.naver?where=nexearch&query=${encodeURIComponent(keyword)}`, {
     waitUntil: 'domcontentloaded', timeout: 30000,
   });
-  await page.waitForTimeout(2200);
+  await page.waitForTimeout(2500);
 
-  const exactMore = page.getByRole('link', { name: '더보기', exact: true });
-  const count = await exactMore.count().catch(() => 0);
+  const allMore = page.locator('a').filter({ hasText: /^\s*더보기\s*$/ });
+  const count = await allMore.count().catch(() => 0);
   const all = [];
+  const placeCandidateIndexes = [];
   for (let i = 0; i < count; i += 1) {
-    const node = exactMore.nth(i);
-    all.push({
+    const node = allMore.nth(i);
+    const href = await node.getAttribute('href').catch(() => null);
+    const info = {
       index: i,
-      href: await node.getAttribute('href').catch(() => null),
+      href,
       className: await node.getAttribute('class').catch(() => null),
-      outerHTML: await node.evaluate((el) => el.outerHTML.slice(0, 600)).catch(() => null),
-    });
+      outerHTML: await node.evaluate((el) => el.outerHTML.slice(0, 800)).catch(() => null),
+      parentText: await node.evaluate((el) => (el.parentElement?.parentElement?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 500)).catch(() => null),
+    };
+    all.push(info);
+    if (href && isPlaceModuleMoreHref(href)) placeCandidateIndexes.push(i);
   }
 
   const beforeRequests = requests.length;
   const beforeResponses = responses.length;
   let clickResult = 'not-clicked';
-  if (index < count) {
+  const targetIndex = placeCandidateIndexes[candidateIndex];
+  if (targetIndex !== undefined) {
     try {
-      await exactMore.nth(index).scrollIntoViewIfNeeded();
-      await exactMore.nth(index).click({ timeout: 5000 });
+      const target = allMore.nth(targetIndex);
+      await target.scrollIntoViewIfNeeded();
+      await target.click({ timeout: 5000 });
       clickResult = 'clicked';
-      await page.waitForTimeout(3000);
+      await page.waitForTimeout(3500);
     } catch (error) {
       clickResult = `error:${String(error?.message ?? error).slice(0, 220)}`;
     }
   }
 
-  const afterCount = await page.getByRole('link', { name: '더보기', exact: true }).count().catch(() => 0);
   const placeLinks = await page.locator('a[href*="map.naver.com/p/search/"][href*="/place/"]').evaluateAll((nodes) => {
     const mids = [];
     const seen = new Set();
@@ -89,16 +107,17 @@ async function runClick(context, keyword, index) {
       seen.add(match[1]);
       mids.push(match[1]);
     }
-    return mids.slice(0, 100);
+    return mids.slice(0, 120);
   }).catch(() => []);
 
-  console.log('MORE_CLICK_SUMMARY', JSON.stringify({
+  console.log('PLACE_MORE_CLICK_SUMMARY', JSON.stringify({
     keyword,
-    clickIndex: index,
-    moreCount: count,
-    moreLinks: all,
+    candidateIndex,
+    allMoreLinks: all,
+    placeCandidateIndexes,
+    targetIndex: targetIndex ?? null,
     clickResult,
-    afterMoreCount: afterCount,
+    finalUrl: page.url(),
     newRequests: requests.slice(beforeRequests),
     newResponses: responses.slice(beforeResponses),
     allRequests: requests,
@@ -113,7 +132,7 @@ const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
 try {
   for (const keyword of keywords) {
-    for (let index = 0; index < 4; index += 1) {
+    for (let index = 0; index < 3; index += 1) {
       await runClick(context, keyword, index);
     }
   }
