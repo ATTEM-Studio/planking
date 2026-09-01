@@ -9,6 +9,7 @@ import {
   groupSlotsByCompany,
   historySummary,
   jobLabel,
+  jobProgress,
   metricSnapshotForDate,
   parseTargetMid,
   rankDelta,
@@ -32,6 +33,43 @@ test('formatRankResult distinguishes found and true out of range', () => {
 test('jobLabel exposes incomplete traversal separately from failure', () => {
   assert.equal(jobLabel('INCOMPLETE'), '조회 불완전');
   assert.equal(jobLabel('FAILED'), '조회 실패');
+});
+
+test('jobProgress shows queue position and elapsed time without inventing a percentage', () => {
+  const now = new Date('2026-09-01T05:00:00Z');
+  const pending = jobProgress({
+    status: 'PENDING',
+    requested_at: '2026-09-01T04:51:00Z',
+  }, { now, queuePosition: 2 });
+  assert.deepEqual(pending, {
+    tone: 'waiting',
+    title: '수집 대기 중',
+    detail: '대기 9분 · 대기열 2번째',
+    stale: false,
+  });
+
+  const running = jobProgress({
+    status: 'RUNNING',
+    requested_at: '2026-09-01T04:50:00Z',
+    started_at: '2026-09-01T04:59:22Z',
+  }, { now });
+  assert.deepEqual(running, {
+    tone: 'running',
+    title: '네이버 순위 수집 중',
+    detail: '시작 후 38초 · 결과 확인 중',
+    stale: false,
+  });
+});
+
+test('jobProgress flags stale queue jobs instead of leaving users waiting indefinitely', () => {
+  const progress = jobProgress({
+    status: 'PENDING',
+    requested_at: '2026-09-01T02:52:00Z',
+  }, { now: new Date('2026-09-01T05:00:00Z'), queuePosition: 1 });
+
+  assert.equal(progress.title, '처리 지연 감지');
+  assert.equal(progress.detail, '대기 2시간 8분 · 대기열 1번째 · Worker 실행 지연');
+  assert.equal(progress.stale, true);
 });
 
 test('rankDelta treats a lower rank number as improvement', () => {
