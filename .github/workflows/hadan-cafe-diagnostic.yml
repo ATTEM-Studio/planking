@@ -14,10 +14,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
+      - run: npm install
       - run: npm install --prefix collector
-      - run: npx --prefix collector playwright install --with-deps chromium
       - run: node collector/scripts/diagnose-keyword.mjs
         env:
           KEYWORD: 하단카페맛집
           TARGET_MID: '1328453904'
+          BROWSER_RUNTIME: serverless
+          TIMEOUT_MS: '15000'
+          PAGE_DELAY_MS: '450'
+          METRIC_TIMEOUT_MS: '9000'
