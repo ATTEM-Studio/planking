@@ -24,7 +24,7 @@ class handler(BaseHTTPRequestHandler):
         try:
             result = process_payload(
                 {
-                    "keyword": "하단역꿈카페",
+                    "keyword": "하단카페맛집",
                     "targetPlaceId": "1328453904",
                     "placeName": "꿈카페 하단지점",
                 },
