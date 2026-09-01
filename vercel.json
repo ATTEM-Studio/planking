@@ -8,6 +8,10 @@
     "api/rank_collect.mjs": {
       "maxDuration": 60,
       "regions": ["icn1"]
+    },
+    "api/search_fallback_probe.mjs": {
+      "maxDuration": 60,
+      "regions": ["icn1"]
     }
   },
   "headers": [
