@@ -16,8 +16,13 @@ jobs:
         run: |
           set -euo pipefail
           BASE='https://planking-git-fix-first-registration-immediate-collection-choi18.vercel.app'
+          COOKIE_FILE="$(mktemp)"
           BODY_FILE="$(mktemp)"
+          curl --silent --show-error --location --max-time 20 \
+            --cookie-jar "$COOKIE_FILE" \
+            "$BASE/?_vercel_share=46uXzyjjx4ulQZgOHmwqiVwtU8pn7J2w" >/dev/null
           STATUS="$(curl --silent --show-error --max-time 58 \
+            --cookie "$COOKIE_FILE" \
             -o "$BODY_FILE" -w '%{http_code}' \
             -X POST "$BASE/api/rank_request" \
             -H 'Content-Type: application/json' \
@@ -26,6 +31,6 @@ jobs:
           echo
           echo "HTTP $STATUS"
           SLOT_ID="$(jq -r '.slotId // empty' "$BODY_FILE")"
-          trap 'if [ -n "${SLOT_ID:-}" ]; then curl --silent --show-error --max-time 20 -X DELETE "$BASE/api/rank_manage?slotId=$SLOT_ID" >/dev/null || true; fi' EXIT
+          trap 'if [ -n "${SLOT_ID:-}" ]; then curl --silent --show-error --max-time 20 --cookie "$COOKIE_FILE" -X DELETE "$BASE/api/rank_manage?slotId=$SLOT_ID" >/dev/null || true; fi' EXIT
           test "$STATUS" = '200'
           jq -e '.isNew == true and .immediate == true and (.status == "SUCCESS" or .status == "OUT_OF_RANGE")' "$BODY_FILE" >/dev/null
