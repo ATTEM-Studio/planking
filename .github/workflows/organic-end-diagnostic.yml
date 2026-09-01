@@ -21,3 +21,4 @@ jobs:
       - run: node collector/scripts/inspect-ui-pagination.mjs
       - run: node collector/scripts/inspect-search-more.mjs
       - run: node collector/scripts/inspect-ad-signals.mjs
+      - run: node collector/scripts/inspect-graphql-arrays.mjs
