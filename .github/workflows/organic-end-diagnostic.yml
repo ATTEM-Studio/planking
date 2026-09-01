@@ -1,19 +1,21 @@
-name: Organic End Diagnostic
+name: Organic Ranking Diagnostic
 
 on:
+  push:
+    branches:
+      - fix/organic-end-aware-ranking
   workflow_dispatch:
 
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - run: npm install --prefix collector
+      - run: npm test --prefix collector
       - run: npx --prefix collector playwright install --with-deps chromium
-      - run: node collector/scripts/inspect-organic-end.mjs
-        env:
-          KEYWORD: 황성동맛집
+      - run: node collector/scripts/smoke-organic-ranking.mjs
