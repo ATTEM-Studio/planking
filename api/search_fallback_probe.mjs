@@ -93,7 +93,9 @@ export default async function handler(_request, response) {
   let browser;
   let context;
   try {
+    const handlerStartedAt = Date.now();
     browser = await serverlessBrowserFactory();
+    const browserReadyMs = Date.now() - handlerStartedAt;
     context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
 
     let mapItems = null;
@@ -104,32 +106,45 @@ export default async function handler(_request, response) {
         mapItems = extractFirstPageItems(await networkResponse.json());
       } catch {}
     });
+    const mapStartedAt = Date.now();
     await mapPage.goto(
       `https://map.naver.com/p/search/${encodeURIComponent(KEYWORD)}`,
       { waitUntil: 'domcontentloaded', timeout: 15000 },
     );
     await waitFor(() => mapItems, mapPage);
+    const mapReadyMs = Date.now() - mapStartedAt;
 
     let template = null;
     let uiRawItems = null;
     let uiStatus = null;
+    let templateObservedMs = null;
+    let uiObservedMs = null;
     const searchPage = await context.newPage();
+    let searchStartedAt = 0;
     searchPage.on('request', (request) => {
       const candidate = parseTemplate(request);
-      if (candidate) template = candidate;
+      if (candidate) {
+        template = candidate;
+        if (searchStartedAt && templateObservedMs === null) templateObservedMs = Date.now() - searchStartedAt;
+      }
     });
     searchPage.on('response', async (networkResponse) => {
       try {
         const request = networkResponse.request();
         if (!parseTemplate(request)) return;
         uiStatus = networkResponse.status();
-        if (uiStatus === 200) uiRawItems = extractGraphqlItems(await networkResponse.json());
+        if (uiStatus === 200) {
+          uiRawItems = extractGraphqlItems(await networkResponse.json());
+          if (searchStartedAt && uiObservedMs === null) uiObservedMs = Date.now() - searchStartedAt;
+        }
       } catch {}
     });
+    searchStartedAt = Date.now();
     await searchPage.goto(
       `https://search.naver.com/search.naver?where=nexearch&query=${encodeURIComponent(KEYWORD)}`,
       { waitUntil: 'domcontentloaded', timeout: 15000 },
     );
+    const searchDomReadyMs = Date.now() - searchStartedAt;
     await waitFor(() => template, searchPage);
     await waitFor(() => uiRawItems, searchPage, 5000);
 
@@ -145,6 +160,14 @@ export default async function handler(_request, response) {
       keyword: KEYWORD,
       targetMid: TARGET_MID,
       region: process.env.VERCEL_REGION ?? null,
+      timings: {
+        browserReadyMs,
+        mapReadyMs,
+        searchDomReadyMs,
+        templateObservedMs,
+        uiObservedMs,
+        collectorPerSeedFloorMs: 1500,
+      },
       map: {
         organicCount: mapOrganic.length,
         mids: mapOrganic.slice(0, 20).map((item) => item.mid),
