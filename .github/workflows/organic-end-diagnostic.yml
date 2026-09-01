@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm install --prefix collector
+      - run: npm install --prefix collector >/dev/null 2>&1
       - run: npm test --prefix collector
-      - run: npx --prefix collector playwright install --with-deps chromium
+      - run: npx --prefix collector playwright install --with-deps chromium >/dev/null 2>&1
       - run: node collector/scripts/inspect-ui-pagination.mjs
