@@ -4,8 +4,8 @@ import { extractFirstPageItems, extractGraphqlItems } from '../src/normalize.mjs
 const keywords = (process.env.KEYWORDS || '하단역카페,황성동맛집').split(',').map((v) => v.trim()).filter(Boolean);
 const MAP_MARKER = '/p/api/search/allSearch';
 const SEARCH_MARKER = 'p-api.place.naver.com/graphql';
-const suspiciousKey = /(ad|advert|promotion|promo|sponsor|paid|place.?plus|badge|label|powerlink|premium)/i;
-const suspiciousValue = /(광고|플레이스\s*플러스|sponsor|promotion|advert|place\s*plus)/i;
+const suspiciousKey = /(ad|advert|promotion|promo|sponsor|paid|powerlink)/i;
+const suspiciousValue = /(광고|sponsor|promotion|advert|powerlink)/i;
 
 function midOf(item) {
   return String(item?.mid ?? item?.id ?? item?.placeId ?? item?.place_id ?? '');
@@ -70,16 +70,10 @@ try {
   for (const keyword of keywords) {
     const page = await context.newPage();
     let mapItems = [];
-    const gqlItems = [];
     page.on('response', async (response) => {
       try {
         const url = response.url();
-        if (url.includes(MAP_MARKER)) {
-          mapItems = extractFirstPageItems(await response.json());
-          return;
-        }
-        if (!getRestaurantOp(response.request())) return;
-        gqlItems.push(...extractGraphqlItems(await response.json()));
+        if (url.includes(MAP_MARKER)) mapItems = extractFirstPageItems(await response.json());
       } catch {}
     });
 
@@ -89,7 +83,7 @@ try {
     await page.waitForTimeout(2500);
     console.log('AD_MAP_RAW', JSON.stringify({
       keyword,
-      items: mapItems.slice(0, 5).map(compactItem),
+      items: mapItems.slice(0, 8).map(compactItem),
     }));
     await page.close();
 
@@ -120,7 +114,7 @@ try {
     console.log('AD_SEARCH_RAW', JSON.stringify({
       keyword,
       domPlaces,
-      gqlItems: searchGqlItems.slice(0, 5).map(compactItem),
+      gqlItems: searchGqlItems.slice(0, 8).map(compactItem),
     }));
     await search.close();
   }
