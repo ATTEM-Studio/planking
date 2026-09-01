@@ -1,4 +1,4 @@
-import { normalizeOrganicItems } from './normalize.mjs';
+import { getNaverTotalCount, normalizeOrganicItems } from './normalize.mjs';
 import { assertRankResult } from './types.mjs';
 
 export function findRankAcrossPages({ targetMid, pages, maxRank = 300, endConfirmed = false }) {
@@ -11,8 +11,12 @@ export function findRankAcrossPages({ targetMid, pages, maxRank = 300, endConfir
 
   let itemsScanned = 0;
   let pagesScanned = 0;
+  let declaredTotalCount = null;
 
   for (const page of pages) {
+    const pageTotalCount = getNaverTotalCount(page);
+    if (pageTotalCount !== null && declaredTotalCount === null) declaredTotalCount = pageTotalCount;
+
     pagesScanned += 1;
     const organic = normalizeOrganicItems(page);
     for (const item of organic) {
@@ -31,7 +35,8 @@ export function findRankAcrossPages({ targetMid, pages, maxRank = 300, endConfir
     if (itemsScanned >= maxRank) break;
   }
 
-  if (itemsScanned < maxRank && !endConfirmed) {
+  const naverEndConfirmed = declaredTotalCount !== null && itemsScanned >= declaredTotalCount;
+  if (itemsScanned < maxRank && !endConfirmed && !naverEndConfirmed) {
     throw new Error('incomplete traversal: target was not found before the collection ended');
   }
 
