@@ -109,7 +109,11 @@ function parseGetRestaurantsTemplate(request) {
   }
 }
 
-function rewriteGetRestaurantsTemplate(template, query, { start = 1, display = 50 } = {}) {
+function rewriteGetRestaurantsTemplate(
+  template,
+  query,
+  { start = 1, display = 50, preserveNlu = false } = {},
+) {
   const body = JSON.parse(JSON.stringify(template.body));
   const operations = Array.isArray(body) ? body : [body];
   for (const operation of operations) {
@@ -117,9 +121,7 @@ function rewriteGetRestaurantsTemplate(template, query, { start = 1, display = 5
     operation.variables.input.query = query;
     operation.variables.input.start = start;
     operation.variables.input.display = display;
-    // Preserve Naver-generated regional/NLU context from the seed request.
-    // The original tracking query is still restored above and the result is
-    // accepted only after exact first-page MID alignment with Naver Map.
+    if (!preserveNlu) delete operation.variables.input.nlu;
   }
   return { endpoint: template.endpoint, body };
 }
@@ -279,7 +281,11 @@ async function collectAlignedRankFromNaverSearch({
       if (!template) continue;
 
       const firstDisplay = Math.min(50, maxRank);
-      const firstReplay = await replayGetRestaurants(searchPage, template, cleanKeyword, { start: 1, display: firstDisplay });
+      const firstReplay = await replayGetRestaurants(searchPage, template, cleanKeyword, {
+        start: 1,
+        display: firstDisplay,
+        preserveNlu: true,
+      });
       if (Number(firstReplay?.status) !== 200) continue;
       const firstItems = extractGraphqlItems(firstReplay?.json);
       if (!normalizeOrganicItems(firstItems).length) continue;
@@ -299,7 +305,11 @@ async function collectAlignedRankFromNaverSearch({
       const display = Math.min(50, maxRank - start + 1);
       const replay = start === 1
         ? alignedFirstReplay
-        : await replayGetRestaurants(searchPage, alignedTemplate, cleanKeyword, { start, display });
+        : await replayGetRestaurants(searchPage, alignedTemplate, cleanKeyword, {
+          start,
+          display,
+          preserveNlu: true,
+        });
       if (Number(replay?.status) !== 200) return null;
 
       const rawItems = extractGraphqlItems(replay?.json);
