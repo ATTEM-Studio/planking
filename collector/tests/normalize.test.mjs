@@ -15,7 +15,22 @@ test('first page list is extracted and ad rows are removed', () => {
   assert.deepEqual(organic.map(row => row.mid), ['1340244014']);
 });
 
-test('GraphQL items are found recursively', () => {
+test('GraphQL restaurant businesses items are preferred over nested item arrays', () => {
+  const payload = [{ data: {
+    restaurants: {
+      businesses: {
+        items: [
+          { id: '222', name: '실제 업체', visitorImages: [{ id: 'image-1' }] },
+          { id: '333', name: '실제 업체 2' },
+        ],
+      },
+      filtersInfo: { filters: [{ items: [{ id: 'filter-1', name: '필터' }] }] },
+    },
+  } }];
+  assert.deepEqual(extractGraphqlItems(payload).map(item => item.id), ['222', '333']);
+});
+
+test('GraphQL generic items are still found recursively for other Naver responses', () => {
   const payload = [{ data: { search: { result: { items: [{ id: '222', name: 'B' }] } } } }];
   assert.equal(extractGraphqlItems(payload)[0].id, '222');
 });
@@ -29,6 +44,18 @@ test('unknown rows remain organic while explicit ad indicators are excluded', ()
     { name: 'missing mid' },
   ];
   assert.deepEqual(normalizeOrganicItems(rows).map(row => row.mid), ['1']);
+});
+
+test('Place Plus is a normal place result, not an advertisement', () => {
+  const rows = [
+    {
+      id: '1486800818',
+      name: '메가MGC커피 부산하단역점',
+      promotionTitle: '플레이스 플러스',
+      ppc: '1',
+    },
+  ];
+  assert.deepEqual(normalizeOrganicItems(rows).map(row => row.mid), ['1486800818']);
 });
 
 test('place metrics preserve raw save bucket while parsing review counts', () => {

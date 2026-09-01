@@ -1,3 +1,5 @@
+const NAVER_TOTAL_COUNT = Symbol.for('planking.naverTotalCount');
+
 function findItems(node) {
   if (!node || typeof node !== 'object') return null;
   if (Array.isArray(node.items)) return node.items;
@@ -11,6 +13,15 @@ function findItems(node) {
   for (const value of Object.values(node)) {
     const found = findItems(value);
     if (found) return found;
+  }
+  return null;
+}
+
+function findRestaurantBusinessItems(payload) {
+  const operations = Array.isArray(payload) ? payload : [payload];
+  for (const operation of operations) {
+    const items = operation?.data?.restaurants?.businesses?.items;
+    if (Array.isArray(items)) return items;
   }
   return null;
 }
@@ -65,11 +76,27 @@ function nullableRaw(value) {
 
 export function extractFirstPageItems(payload) {
   const list = payload?.result?.place?.list;
-  return Array.isArray(list) ? list : [];
+  if (!Array.isArray(list)) return [];
+
+  const totalCount = nullableCount(payload?.result?.place?.totalCount);
+  if (totalCount !== null) {
+    Object.defineProperty(list, NAVER_TOTAL_COUNT, {
+      value: totalCount,
+      enumerable: false,
+      configurable: true,
+    });
+  }
+  return list;
+}
+
+export function getNaverTotalCount(items) {
+  if (!Array.isArray(items)) return null;
+  const value = items[NAVER_TOTAL_COUNT];
+  return Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
 export function extractGraphqlItems(payload) {
-  return findItems(payload) ?? [];
+  return findRestaurantBusinessItems(payload) ?? findItems(payload) ?? [];
 }
 
 export function extractPlaceItemByMid(payload, targetMid) {
