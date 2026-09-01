@@ -25,7 +25,14 @@ function scannedCounts(pages) {
 }
 
 function errorResult(status, pages, errorCode, errorMessage) {
-  return assertRankResult({ status, rank: null, ...scannedCounts(pages), matchedMid: null, errorCode, errorMessage });
+  return assertRankResult({
+    status,
+    rank: null,
+    ...scannedCounts(pages),
+    matchedMid: null,
+    errorCode,
+    errorMessage,
+  });
 }
 
 function incompleteResult(pages, maxRank, reason = 'pagination ended before the requested rank limit') {
@@ -94,35 +101,47 @@ function mergePlaceMetrics(base, rich) {
   };
 }
 
+function getGetRestaurantsOperation(body) {
+  const operations = Array.isArray(body) ? body : [body];
+  return operations.find(
+    (operation) => operation?.operationName === 'getRestaurants' && operation?.variables?.input,
+  ) ?? null;
+}
+
 function parseGetRestaurantsTemplate(request) {
   try {
     const url = typeof request.url === 'function' ? request.url() : '';
     if (!url.includes(SEARCH_GRAPHQL_MARKER)) return null;
     const body = JSON.parse(request.postData() || 'null');
-    const operations = Array.isArray(body) ? body : [body];
-    if (!operations.some((operation) => operation?.operationName === 'getRestaurants' && operation?.variables?.input)) {
-      return null;
-    }
+    if (!getGetRestaurantsOperation(body)) return null;
     return { endpoint: url, body };
   } catch {
     return null;
   }
 }
 
+function getNaturalWindow(template) {
+  const input = getGetRestaurantsOperation(template?.body)?.variables?.input;
+  const start = Number(input?.start);
+  const display = Number(input?.display);
+  if (!Number.isInteger(start) || start < 1) return null;
+  if (!Number.isInteger(display) || display < 1) return null;
+  return { start, display };
+}
+
 function rewriteGetRestaurantsTemplate(
   template,
   query,
-  { start = 1, display = 50, preserveNlu = false } = {},
+  { start = null, display = null, preserveNlu = false } = {},
 ) {
   const body = JSON.parse(JSON.stringify(template.body));
-  const operations = Array.isArray(body) ? body : [body];
-  for (const operation of operations) {
-    if (operation?.operationName !== 'getRestaurants' || !operation?.variables?.input) continue;
-    operation.variables.input.query = query;
-    operation.variables.input.start = start;
-    operation.variables.input.display = display;
-    if (!preserveNlu) delete operation.variables.input.nlu;
-  }
+  const operation = getGetRestaurantsOperation(body);
+  if (!operation) return { endpoint: template.endpoint, body };
+
+  operation.variables.input.query = query;
+  if (Number.isInteger(start) && start > 0) operation.variables.input.start = start;
+  if (Number.isInteger(display) && display > 0) operation.variables.input.display = display;
+  if (!preserveNlu) delete operation.variables.input.nlu;
   return { endpoint: template.endpoint, body };
 }
 
@@ -138,11 +157,20 @@ async function replayGetRestaurants(page, template, query, options = {}) {
   }, replay);
 }
 
-function alignedWithMapFirstPage(mapFirstPage, searchItems) {
+function alignedWithMapAtNaturalOffset(mapFirstPage, searchItems, start) {
   const mapOrganic = normalizeOrganicItems(mapFirstPage);
   const searchOrganic = normalizeOrganicItems(searchItems);
-  if (!mapOrganic.length || searchOrganic.length < mapOrganic.length) return false;
-  return mapOrganic.every((item, index) => searchOrganic[index]?.mid === item.mid);
+  if (!mapOrganic.length || !searchOrganic.length) return false;
+  if (!Number.isInteger(start) || start < 1 || start > mapOrganic.length) return false;
+
+  const overlapCount = Math.min(searchOrganic.length, mapOrganic.length - start + 1);
+  // A single accidental match is too weak to trust an internal fallback.
+  if (overlapCount < Math.min(3, mapOrganic.length)) return false;
+
+  for (let index = 0; index < overlapCount; index += 1) {
+    if (searchOrganic[index]?.mid !== mapOrganic[start - 1 + index]?.mid) return false;
+  }
+  return true;
 }
 
 async function waitForTemplate(page, getTemplate, timeoutMs) {
@@ -175,7 +203,9 @@ function cleanAddressTokens(value) {
 }
 
 function fallbackLocalitySeeds(...addressValues) {
-  const candidates = [];
+  const full = [];
+  const short = [];
+  const cities = [];
   const addresses = addressValues.map((value) => String(value ?? '').trim()).filter(Boolean);
 
   for (const address of addresses) {
@@ -190,27 +220,27 @@ function fallbackLocalitySeeds(...addressValues) {
     if (neighborhoodIndex < 0) continue;
 
     const neighborhood = tokens[neighborhoodIndex];
-    const shortNeighborhood = neighborhood.replace(/(?:동|읍|면|리|가)$/, '');
-    if (shortNeighborhood) candidates.push(shortNeighborhood);
-
     for (let index = neighborhoodIndex - 1; index >= 0; index -= 1) {
       if (!/^[가-힣0-9]+(?:구|군|시)$/.test(tokens[index])) continue;
-      candidates.push(`${tokens[index]} ${neighborhood}`);
+      full.push(`${tokens[index]} ${neighborhood}`);
       break;
     }
+
+    const shortNeighborhood = neighborhood.replace(/(?:동|읍|면|리|가)$/, '');
+    if (shortNeighborhood) short.push(shortNeighborhood);
   }
 
   for (const address of addresses) {
     const tokens = cleanAddressTokens(address);
     for (let index = tokens.length - 1; index >= 0; index -= 1) {
       if (/^[가-힣0-9]+(?:구|군|시)$/.test(tokens[index])) {
-        candidates.push(tokens[index]);
+        cities.push(tokens[index]);
         break;
       }
     }
   }
 
-  return [...new Set(candidates.filter(Boolean))];
+  return [...new Set([...full, ...short, ...cities].filter(Boolean))];
 }
 
 function fallbackTemplateSeeds(keyword, mapFirstPage) {
@@ -229,13 +259,8 @@ function fallbackTemplateSeeds(keyword, mapFirstPage) {
 
   for (const locality of localities) {
     if (!category) continue;
-    if (/\s/.test(locality)) {
-      candidates.push(`${locality} ${category}`);
-      candidates.push(`${locality}${category}`);
-    } else {
-      candidates.push(`${locality}${category}`);
-      candidates.push(`${locality} ${category}`);
-    }
+    candidates.push(`${locality} ${category}`);
+    candidates.push(`${locality}${category}`);
   }
 
   if (name) candidates.push(name);
@@ -258,7 +283,6 @@ async function collectAlignedRankFromNaverSearch({
   let template = null;
   try {
     searchPage = await context.newPage();
-    // Unit-test/fake browser contexts intentionally do not implement evaluate.
     if (!searchPage || typeof searchPage.evaluate !== 'function') return null;
 
     searchPage.on('request', (request) => {
@@ -268,8 +292,6 @@ async function collectAlignedRankFromNaverSearch({
 
     const seeds = fallbackTemplateSeeds(cleanKeyword, mapFirstPage);
     const perSeedTimeout = Math.max(1500, Math.min(5000, Math.floor(timeoutMs / Math.max(1, seeds.length))));
-    let alignedTemplate = null;
-    let alignedFirstReplay = null;
 
     for (const seed of seeds) {
       template = null;
@@ -280,69 +302,41 @@ async function collectAlignedRankFromNaverSearch({
       await waitForTemplate(searchPage, () => template, perSeedTimeout);
       if (!template) continue;
 
-      const firstDisplay = Math.min(50, maxRank);
-      const firstReplay = await replayGetRestaurants(searchPage, template, cleanKeyword, {
-        start: 1,
-        display: firstDisplay,
-        preserveNlu: true,
-      });
-      if (Number(firstReplay?.status) !== 200) continue;
-      const firstItems = extractGraphqlItems(firstReplay?.json);
-      if (!normalizeOrganicItems(firstItems).length) continue;
-      if (!alignedWithMapFirstPage(mapFirstPage, firstItems)) continue;
+      const natural = getNaturalWindow(template);
+      if (!natural || natural.start > maxRank) continue;
 
-      alignedTemplate = template;
-      alignedFirstReplay = firstReplay;
-      break;
-    }
-    if (!alignedTemplate || !alignedFirstReplay) return null;
-
-    const seen = new Set();
-    let cumulativeRank = 0;
-    let pagesScanned = 0;
-
-    for (let start = 1; start <= maxRank; start += 50) {
-      const display = Math.min(50, maxRank - start + 1);
-      const replay = start === 1
-        ? alignedFirstReplay
-        : await replayGetRestaurants(searchPage, alignedTemplate, cleanKeyword, {
-          start,
-          display,
-          preserveNlu: true,
-        });
-      if (Number(replay?.status) !== 200) return null;
+      // Keep the window Naver itself generated. Only replace the tracked query and
+      // remove seed-specific NLU; do not synthesize page 1/51/101 requests.
+      const replay = await replayGetRestaurants(searchPage, template, cleanKeyword);
+      if (Number(replay?.status) !== 200) continue;
 
       const rawItems = extractGraphqlItems(replay?.json);
       const organicItems = normalizeOrganicItems(rawItems);
-      if (!organicItems.length) return null;
+      if (!organicItems.length) continue;
+      if (!alignedWithMapAtNaturalOffset(mapFirstPage, rawItems, natural.start)) continue;
 
-      pagesScanned += 1;
-      for (const item of organicItems) {
-        if (seen.has(item.mid)) continue;
-        seen.add(item.mid);
-        cumulativeRank += 1;
-        if (cumulativeRank > maxRank) return null;
-        if (item.mid !== cleanMid) continue;
+      const targetIndex = organicItems.findIndex((item) => item.mid === cleanMid);
+      if (targetIndex < 0) continue;
 
-        const placeMetrics = extractPlaceMetrics(item.raw);
-        const result = {
-          status: 'FOUND',
-          rank: cumulativeRank,
-          pagesScanned,
-          itemsScanned: cumulativeRank,
-          matchedMid: cleanMid,
-          errorCode: null,
-          errorMessage: null,
-        };
-        if (Object.values(placeMetrics).some((value) => value !== null)) result.placeMetrics = placeMetrics;
-        return assertRankResult(result);
-      }
+      const rank = natural.start + targetIndex;
+      if (rank < 1 || rank > maxRank) continue;
 
-      // Search GraphQL ending before maxRank is not proof of 300+.
-      if (organicItems.length < display) return null;
+      const matched = organicItems[targetIndex];
+      const placeMetrics = extractPlaceMetrics(matched.raw);
+      const result = {
+        status: 'FOUND',
+        rank,
+        pagesScanned: 2,
+        itemsScanned: rank,
+        matchedMid: cleanMid,
+        errorCode: null,
+        errorMessage: null,
+      };
+      if (Object.values(placeMetrics).some((value) => value !== null)) result.placeMetrics = placeMetrics;
+      return assertRankResult(result);
     }
 
-    // Never promote fallback absence to OUT_OF_RANGE without a proven complete top-300 traversal.
+    // A missing target in an aligned partial block is not proof of OUT_OF_RANGE.
     return null;
   } catch {
     return null;
@@ -541,8 +535,12 @@ export class NaverMapCollector {
       found = tryCurrentRank(cleanMid, pages, maxRank);
       return found ? await finalizeFound(found) : incompleteResult(pages, maxRank);
     } catch (error) {
-      if (error?.code === 'BLOCKED') return errorResult('BLOCKED', pages, 'BLOCKED', String(error.message ?? 'Naver blocked request'));
-      if (isTimeoutError(error)) return errorResult('TIMEOUT', pages, 'TIMEOUT', String(error.message ?? 'collection timed out'));
+      if (error?.code === 'BLOCKED') {
+        return errorResult('BLOCKED', pages, 'BLOCKED', String(error.message ?? 'Naver blocked request'));
+      }
+      if (isTimeoutError(error)) {
+        return errorResult('TIMEOUT', pages, 'TIMEOUT', String(error.message ?? 'collection timed out'));
+      }
       return errorResult('FAILED', pages, error?.code ?? 'COLLECTOR_ERROR', String(error?.message ?? error));
     } finally {
       if (context) await context.close().catch(() => {});
