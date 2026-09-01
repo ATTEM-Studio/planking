@@ -194,3 +194,109 @@ export function jobLabel(status) {
     FAILED: '조회 실패',
   })[status] || '대기';
 }
+
+function elapsedLabel(milliseconds) {
+  const seconds = Math.max(0, Math.floor(Number(milliseconds) / 1000));
+  if (seconds < 60) return `${seconds}초`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}분`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder ? `${hours}시간 ${remainder}분` : `${hours}시간`;
+}
+
+export function jobProgress(job, { now = new Date(), queuePosition = null } = {}) {
+  const status = String(job?.status ?? '');
+  const nowDate = now instanceof Date ? now : new Date(now);
+  if (Number.isNaN(nowDate.getTime())) return null;
+
+  if (status === 'PENDING') {
+    const requestedAt = new Date(job?.requested_at ?? '');
+    if (Number.isNaN(requestedAt.getTime())) return null;
+    const elapsedMs = Math.max(0, nowDate.getTime() - requestedAt.getTime());
+    const stale = elapsedMs >= 15 * 60 * 1000;
+    const queue = Number.isInteger(queuePosition) && queuePosition > 0 ? ` · 대기열 ${queuePosition}번째` : '';
+    return {
+      tone: stale ? 'stale' : 'waiting',
+      title: stale ? '처리 지연 감지' : '수집 대기 중',
+      detail: `대기 ${elapsedLabel(elapsedMs)}${queue}${stale ? ' · Worker 실행 지연' : ''}`,
+      stale,
+    };
+  }
+
+  if (status === 'RUNNING') {
+    const startedAt = new Date(job?.started_at ?? job?.requested_at ?? '');
+    if (Number.isNaN(startedAt.getTime())) return null;
+    const elapsedMs = Math.max(0, nowDate.getTime() - startedAt.getTime());
+    const stale = elapsedMs >= 10 * 60 * 1000;
+    return {
+      tone: stale ? 'stale' : 'running',
+      title: stale ? '수집 지연 감지' : '네이버 순위 수집 중',
+      detail: `시작 후 ${elapsedLabel(elapsedMs)} · ${stale ? '응답 지연 확인 필요' : '결과 확인 중'}`,
+      stale,
+    };
+  }
+
+  return null;
+}
+
+function ensureProgressStyles() {
+  if (document.getElementById('rank-progress-live-style')) return;
+  const style = document.createElement('style');
+  style.id = 'rank-progress-live-style';
+  style.textContent = `
+    .keyword-progress-live{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:5px;font-size:11px;line-height:1.4;color:#68708a}
+    .keyword-progress-live strong{font-size:11px;font-weight:800;color:#4a55d8}
+    .keyword-progress-live.is-running strong{color:#167b5a}
+    .keyword-progress-live.is-stale{padding:5px 8px;border-radius:8px;background:#fff4e5;color:#9a5a00}
+    .keyword-progress-live.is-stale strong{color:#c56a00}
+  `;
+  document.head.appendChild(style);
+}
+
+async function refreshVisibleJobProgress() {
+  try {
+    const response = await fetch('/api/rank_status', { cache: 'no-store' });
+    if (!response.ok) return;
+    const payload = await response.json();
+    const rows = Array.isArray(payload?.slots) ? payload.slots : [];
+    const pending = rows
+      .filter((slot) => slot?.latestJob?.status === 'PENDING')
+      .sort((a, b) => new Date(a.latestJob.requested_at).getTime() - new Date(b.latestJob.requested_at).getTime());
+    const positions = new Map(pending.map((slot, index) => [String(slot.latestJob.id), index + 1]));
+    const now = new Date();
+
+    for (const slot of rows) {
+      const job = slot?.latestJob;
+      if (!job || (job.status !== 'PENDING' && job.status !== 'RUNNING')) continue;
+      const row = document.querySelector(`.keyword-rank-row[data-slot-id="${CSS.escape(String(slot.id))}"]`);
+      const copy = row?.querySelector('.keyword-rank-copy');
+      if (!copy) continue;
+      const progress = jobProgress(job, { now, queuePosition: positions.get(String(job.id)) ?? null });
+      if (!progress) continue;
+
+      let node = copy.querySelector('.keyword-progress-live');
+      if (!node) {
+        node = document.createElement('span');
+        node.className = 'keyword-progress-live';
+        copy.appendChild(node);
+      }
+      node.className = `keyword-progress-live is-${progress.tone}`;
+      node.innerHTML = `<strong>${progress.title}</strong><span>${progress.detail}</span>`;
+    }
+  } catch {
+    // The primary dashboard remains authoritative if this progressive enhancement cannot refresh.
+  }
+}
+
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+  ensureProgressStyles();
+  const boot = () => {
+    window.setTimeout(refreshVisibleJobProgress, 400);
+    window.setInterval(() => {
+      if (!document.hidden) refreshVisibleJobProgress();
+    }, 10000);
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once: true });
+  else boot();
+}
