@@ -40,7 +40,10 @@ class handler(BaseHTTPRequestHandler):
                 "immediateStatus": immediate.get("status") if isinstance(immediate, dict) else None,
                 "rankStatus": rank_result.get("status"),
                 "rank": rank_result.get("rank"),
+                "pagesScanned": rank_result.get("pagesScanned"),
+                "itemsScanned": rank_result.get("itemsScanned"),
                 "errorCode": rank_result.get("errorCode"),
+                "errorMessage": rank_result.get("errorMessage"),
             })
         except Exception as exc:
             self._send_json(500, {"ok": False, "error": type(exc).__name__})
