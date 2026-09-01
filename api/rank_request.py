@@ -140,13 +140,24 @@ def _attempt_immediate_collection(
     scheme = "http" if forwarded_proto == "http" else "https"
     url = f"{scheme}://{host}/api/rank_collect"
     body = json.dumps({"jobId": str(job_id)}, ensure_ascii=False).encode("utf-8")
+    request_headers = {"Content-Type": "application/json"}
+
+    # Same-origin preview deployments can be protected. Forward only the
+    # request's Vercel auth context so the internal collector call remains in
+    # the same authenticated session. Production normally has no such headers.
+    cookie = str(headers.get("Cookie") or "").strip()
+    if cookie:
+        request_headers["Cookie"] = cookie
+    bypass = str(headers.get("X-Vercel-Protection-Bypass") or "").strip()
+    if bypass:
+        request_headers["X-Vercel-Protection-Bypass"] = bypass
 
     for attempt in range(max(1, attempts)):
         request = Request(
             url,
             data=body,
             method="POST",
-            headers={"Content-Type": "application/json"},
+            headers=request_headers,
         )
         try:
             with opener(request, timeout=timeout) as response:
