@@ -4,6 +4,9 @@
   "functions": {
     "api/**/*.py": {
       "excludeFiles": "{tests/**,__tests__/**,**/*.test.py,**/test_*.py,collector/**,docs/**,supabase/**}"
+    },
+    "api/rank_collect.mjs": {
+      "maxDuration": 60
     }
   },
   "headers": [
