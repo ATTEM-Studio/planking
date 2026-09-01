@@ -12,6 +12,7 @@ const FIRST_PAGE_MARKER = '/p/api/search/allSearch';
 const RANK_GRAPHQL_MARKER = 'pcmap-api.place.naver.com/graphql';
 const SEARCH_GRAPHQL_MARKER = 'p-api.place.naver.com/graphql';
 const SEARCH_CHAIN_OVERLAP = 8;
+const SEARCH_TEMPLATE_WAIT_MAX_MS = 12000;
 
 async function defaultBrowserFactory() {
   const { chromium } = await import('playwright');
@@ -301,6 +302,7 @@ async function collectAlignedRankFromNaverSearch({
   mapFirstPage,
   maxRank,
   timeoutMs,
+  totalTimeoutMs = null,
 }) {
   const cleanKeyword = String(keyword ?? '').trim();
   const cleanMid = String(targetMid ?? '').trim();
@@ -318,15 +320,31 @@ async function collectAlignedRankFromNaverSearch({
     });
 
     const seeds = fallbackTemplateSeeds(cleanKeyword, mapFirstPage);
-    const perSeedTimeout = Math.max(1500, Math.min(5000, Math.floor(timeoutMs / Math.max(1, seeds.length))));
+    const perSeedTimeout = Math.max(1, Number(timeoutMs) || 1);
+    const explicitTotalTimeout = Number(totalTimeoutMs);
+    const fallbackTotalTimeout = Number.isFinite(explicitTotalTimeout) && explicitTotalTimeout > 0
+      ? explicitTotalTimeout
+      : perSeedTimeout * Math.max(1, seeds.length);
+    const fallbackDeadline = Date.now() + fallbackTotalTimeout;
 
     for (const seed of seeds) {
       template = null;
+      const navigationBudget = Math.min(
+        perSeedTimeout,
+        Math.max(0, fallbackDeadline - Date.now()),
+      );
+      if (navigationBudget <= 0) break;
       await searchPage.goto(
         `https://search.naver.com/search.naver?where=nexearch&query=${encodeURIComponent(seed)}`,
-        { waitUntil: 'domcontentloaded', timeout: timeoutMs },
+        { waitUntil: 'domcontentloaded', timeout: navigationBudget },
       );
-      await waitForTemplate(searchPage, () => template, perSeedTimeout);
+      const templateWaitBudget = Math.min(
+        SEARCH_TEMPLATE_WAIT_MAX_MS,
+        perSeedTimeout,
+        Math.max(0, fallbackDeadline - Date.now()),
+      );
+      if (templateWaitBudget <= 0) break;
+      await waitForTemplate(searchPage, () => template, templateWaitBudget);
       if (!template) continue;
 
       const natural = getNaturalWindow(template);
@@ -456,12 +474,16 @@ export class NaverMapCollector {
     timeoutMs = 15000,
     pageDelayMs = 600,
     metricEnrichmentTimeoutMs = 10000,
+    rankFallbackTimeoutMs = metricEnrichmentTimeoutMs,
+    rankFallbackTotalTimeoutMs = null,
     rankSearchFallback = collectAlignedRankFromNaverSearch,
   } = {}) {
     this.browserFactory = browserFactory;
     this.timeoutMs = timeoutMs;
     this.pageDelayMs = pageDelayMs;
     this.metricEnrichmentTimeoutMs = metricEnrichmentTimeoutMs;
+    this.rankFallbackTimeoutMs = rankFallbackTimeoutMs;
+    this.rankFallbackTotalTimeoutMs = rankFallbackTotalTimeoutMs;
     this.rankSearchFallback = rankSearchFallback;
   }
 
@@ -514,7 +536,8 @@ export class NaverMapCollector {
           targetMid: cleanMid,
           mapFirstPage: pages[0] ?? [],
           maxRank,
-          timeoutMs: this.metricEnrichmentTimeoutMs,
+          timeoutMs: this.rankFallbackTimeoutMs,
+          totalTimeoutMs: this.rankFallbackTotalTimeoutMs,
         });
         return result ? assertRankResult(result) : null;
       } catch {
