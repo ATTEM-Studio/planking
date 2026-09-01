@@ -17,7 +17,7 @@ jobs:
           node-version: 22
       - run: npm install --prefix collector
       - run: npx --prefix collector playwright install --with-deps chromium
-      - run: node collector/scripts/diagnose-sahagu-fallback.mjs
+      - run: node collector/scripts/diagnose-sahagu-chain.mjs
         env:
           KEYWORD: 사하구카페
           TARGET_MID: '1328453904'
