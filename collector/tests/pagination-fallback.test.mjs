@@ -43,11 +43,35 @@ function makeMapItems() {
   return items;
 }
 
-function makeFallbackBrowser({ mapItems, searchItems, templateSeed }) {
+function makeGyeongjuMapItems() {
+  const items = Array.from({ length: 20 }, (_, index) => ({
+    id: String(2000 + index),
+    name: `Gyeongju Place ${index + 1}`,
+  }));
+  items[0] = {
+    ...items[0],
+    name: '코지하우스 경주점',
+    address: '경상북도 경주시 황성동 1258 1층',
+    roadAddress: '경상북도 경주시 광중길 57 1층',
+    category: ['음식점', '양식'],
+  };
+  return items;
+}
+
+function makeFallbackBrowser({
+  mapItems,
+  searchItems,
+  templateSeed,
+  templateSeeds = null,
+  searchItemsBySeed = null,
+}) {
   const mapResponseHandlers = [];
   const requestHandlers = [];
   const visitedSeeds = [];
   let replayedQuery = null;
+  let activeSeed = null;
+
+  const acceptedTemplateSeeds = new Set(templateSeeds ?? (templateSeed ? [templateSeed] : []));
 
   const mapPage = {
     on(event, handler) {
@@ -78,12 +102,13 @@ function makeFallbackBrowser({ mapItems, searchItems, templateSeed }) {
     },
     async goto(url) {
       const seed = new URL(url).searchParams.get('query');
+      activeSeed = seed;
       visitedSeeds.push(seed);
-      if (seed !== templateSeed) return;
+      if (!acceptedTemplateSeeds.has(seed)) return;
 
       const request = new FakeRequest('https://p-api.place.naver.com/graphql', [{
         operationName: 'getRestaurants',
-        variables: { input: { query: seed, start: 1, display: 20, nlu: {} } },
+        variables: { input: { query: seed, start: 1, display: 20, nlu: `region:${seed}` } },
       }]);
       for (const handler of requestHandlers) handler(request);
     },
@@ -91,9 +116,10 @@ function makeFallbackBrowser({ mapItems, searchItems, templateSeed }) {
     async evaluate(_callback, replay) {
       const operations = Array.isArray(replay.body) ? replay.body : [replay.body];
       replayedQuery = operations.find((operation) => operation?.operationName === 'getRestaurants')?.variables?.input?.query ?? null;
+      const items = searchItemsBySeed?.[activeSeed] ?? searchItems;
       return {
         status: 200,
-        json: [{ data: { search: { result: { items: searchItems } } } }],
+        json: [{ data: { search: { result: { items } } } }],
       };
     },
     async close() {},
@@ -152,7 +178,45 @@ test('derives a local category seed from live map fields and replays the origina
   assert.equal(fake.replayedQuery(), '하단역카페');
 });
 
-test('keeps INCOMPLETE when search fallback first-page MID order does not align with the map', async () => {
+test('retries with full map locality when the original search template is region-misaligned', async () => {
+  const mapItems = makeGyeongjuMapItems();
+  const wrongRegionItems = [...mapItems];
+  [wrongRegionItems[0], wrongRegionItems[1]] = [wrongRegionItems[1], wrongRegionItems[0]];
+  const alignedItems = [
+    ...mapItems,
+    { id: '2020', name: 'Gyeongju Place 21' },
+    { id: '2021', name: 'Gyeongju Place 22' },
+    { id: '2022', name: 'Gyeongju Place 23' },
+    { id: '2023', name: 'Gyeongju Place 24' },
+    { id: '2076542131', name: '우후죽순용황점' },
+  ];
+
+  const fake = makeFallbackBrowser({
+    mapItems,
+    templateSeeds: ['황성동맛집', '경주시 황성동 양식'],
+    searchItemsBySeed: {
+      황성동맛집: wrongRegionItems,
+      '경주시 황성동 양식': alignedItems,
+    },
+  });
+
+  const result = await new NaverMapCollector({
+    browserFactory: fake.browserFactory,
+    pageDelayMs: 0,
+    metricEnrichmentTimeoutMs: 50,
+  }).collect({
+    keyword: '황성동맛집',
+    targetMid: '2076542131',
+    maxRank: 300,
+  });
+
+  assert.equal(result.status, 'FOUND');
+  assert.equal(result.rank, 25);
+  assert.ok(fake.visitedSeeds.includes('경주시 황성동 양식'));
+  assert.equal(fake.replayedQuery(), '황성동맛집');
+});
+
+test('keeps INCOMPLETE when every search fallback seed remains misaligned with the map', async () => {
   const mapItems = makeMapItems();
   const mismatchedFirstPage = [...mapItems];
   [mismatchedFirstPage[0], mismatchedFirstPage[1]] = [mismatchedFirstPage[1], mismatchedFirstPage[0]];
