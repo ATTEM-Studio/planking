@@ -1,0 +1,23 @@
+name: Hadan Cafe Diagnostic
+
+on:
+  push:
+    branches:
+      - diag/hadan-cafe-matjip
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --prefix collector
+      - run: npx --prefix collector playwright install --with-deps chromium
+      - run: node collector/scripts/diagnose-keyword.mjs
+        env:
+          KEYWORD: 하단카페맛집
+          TARGET_MID: '1328453904'
