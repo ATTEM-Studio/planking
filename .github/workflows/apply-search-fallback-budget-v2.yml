@@ -1,0 +1,67 @@
+name: Apply Search Fallback Budget V2
+
+on:
+  push:
+    branches:
+      - fix/search-fallback-wait-budget
+    paths:
+      - '.github/workflows/apply-search-fallback-budget-v2.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/search-fallback-wait-budget
+      - name: Apply per-seed and total fallback budgets
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('collector/src/naver-map-collector.mjs')
+          text = path.read_text(encoding='utf-8')
+
+          old = """  maxRank,\n  timeoutMs,\n}) {\n"""
+          new = """  maxRank,\n  timeoutMs,\n  totalTimeoutMs = null,\n}) {\n"""
+          if old not in text:
+              raise SystemExit('fallback signature anchor missing')
+          text = text.replace(old, new, 1)
+
+          old = """    const seeds = fallbackTemplateSeeds(cleanKeyword, mapFirstPage);\n    const fallbackDeadline = Date.now() + Math.max(0, Number(timeoutMs) || 0);\n\n    for (const seed of seeds) {\n      template = null;\n      const navigationBudget = Math.max(0, fallbackDeadline - Date.now());\n      if (navigationBudget <= 0) break;\n      await searchPage.goto(\n        `https://search.naver.com/search.naver?where=nexearch&query=${encodeURIComponent(seed)}`,\n        { waitUntil: 'domcontentloaded', timeout: navigationBudget },\n      );\n      const templateWaitBudget = Math.min(\n        SEARCH_TEMPLATE_WAIT_MAX_MS,\n        Math.max(0, fallbackDeadline - Date.now()),\n      );\n      if (templateWaitBudget <= 0) break;\n      await waitForTemplate(searchPage, () => template, templateWaitBudget);\n      if (!template) continue;\n"""
+          new = """    const seeds = fallbackTemplateSeeds(cleanKeyword, mapFirstPage);\n    const perSeedTimeout = Math.max(1, Number(timeoutMs) || 1);\n    const explicitTotalTimeout = Number(totalTimeoutMs);\n    const fallbackTotalTimeout = Number.isFinite(explicitTotalTimeout) && explicitTotalTimeout > 0\n      ? explicitTotalTimeout\n      : perSeedTimeout * Math.max(1, seeds.length);\n    const fallbackDeadline = Date.now() + fallbackTotalTimeout;\n\n    for (const seed of seeds) {\n      template = null;\n      const navigationBudget = Math.min(\n        perSeedTimeout,\n        Math.max(0, fallbackDeadline - Date.now()),\n      );\n      if (navigationBudget <= 0) break;\n      await searchPage.goto(\n        `https://search.naver.com/search.naver?where=nexearch&query=${encodeURIComponent(seed)}`,\n        { waitUntil: 'domcontentloaded', timeout: navigationBudget },\n      );\n      const templateWaitBudget = Math.min(\n        SEARCH_TEMPLATE_WAIT_MAX_MS,\n        perSeedTimeout,\n        Math.max(0, fallbackDeadline - Date.now()),\n      );\n      if (templateWaitBudget <= 0) break;\n      await waitForTemplate(searchPage, () => template, templateWaitBudget);\n      if (!template) continue;\n"""
+          if old not in text:
+              raise SystemExit('fallback deadline anchor missing')
+          text = text.replace(old, new, 1)
+
+          old = """    metricEnrichmentTimeoutMs = 10000,\n    rankFallbackTimeoutMs = metricEnrichmentTimeoutMs,\n    rankSearchFallback = collectAlignedRankFromNaverSearch,\n  } = {}) {\n    this.browserFactory = browserFactory;\n    this.timeoutMs = timeoutMs;\n    this.pageDelayMs = pageDelayMs;\n    this.metricEnrichmentTimeoutMs = metricEnrichmentTimeoutMs;\n    this.rankFallbackTimeoutMs = rankFallbackTimeoutMs;\n    this.rankSearchFallback = rankSearchFallback;\n"""
+          new = """    metricEnrichmentTimeoutMs = 10000,\n    rankFallbackTimeoutMs = metricEnrichmentTimeoutMs,\n    rankFallbackTotalTimeoutMs = null,\n    rankSearchFallback = collectAlignedRankFromNaverSearch,\n  } = {}) {\n    this.browserFactory = browserFactory;\n    this.timeoutMs = timeoutMs;\n    this.pageDelayMs = pageDelayMs;\n    this.metricEnrichmentTimeoutMs = metricEnrichmentTimeoutMs;\n    this.rankFallbackTimeoutMs = rankFallbackTimeoutMs;\n    this.rankFallbackTotalTimeoutMs = rankFallbackTotalTimeoutMs;\n    this.rankSearchFallback = rankSearchFallback;\n"""
+          if old not in text:
+              raise SystemExit('constructor anchor missing')
+          text = text.replace(old, new, 1)
+
+          old = """          maxRank,\n          timeoutMs: this.rankFallbackTimeoutMs,\n        });\n"""
+          new = """          maxRank,\n          timeoutMs: this.rankFallbackTimeoutMs,\n          totalTimeoutMs: this.rankFallbackTotalTimeoutMs,\n        });\n"""
+          if old not in text:
+              raise SystemExit('fallback call anchor missing')
+          text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8')
+
+          path = Path('api/rank_collect.mjs')
+          text = path.read_text(encoding='utf-8')
+          old = """    metricEnrichmentTimeoutMs: 9000,\n    rankFallbackTimeoutMs: 30000,\n  });\n"""
+          new = """    metricEnrichmentTimeoutMs: 9000,\n    rankFallbackTimeoutMs: 12000,\n    rankFallbackTotalTimeoutMs: 30000,\n  });\n"""
+          if old not in text:
+              raise SystemExit('rank_collect budget anchor missing')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+      - name: Commit patch
+        run: |
+          git config user.name "ATTEM"
+          git config user.email "brandoit.choi@gmail.com"
+          git add collector/src/naver-map-collector.mjs api/rank_collect.mjs
+          git commit -m "fix: separate per-seed and total Search fallback budgets"
+          git push origin HEAD:fix/search-fallback-wait-budget
