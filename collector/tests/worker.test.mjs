@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runOne } from '../src/worker.mjs';
+import { processClaimedJob, runOne } from '../src/worker.mjs';
 
 function makeRepository(job = null) {
   const calls = [];
@@ -11,6 +11,7 @@ function makeRepository(job = null) {
     async upsertPlaceMetrics(targetMid, measuredDate, metrics) { calls.push(['metrics', targetMid, measuredDate, metrics]); },
     async completeJob(jobId, result) { calls.push(['complete', jobId, result]); },
     async failJob(jobId, result) { calls.push(['fail', jobId, result]); },
+    async requeueJob(jobId, result) { calls.push(['requeue', jobId, result]); },
   };
 }
 
@@ -104,3 +105,20 @@ for (const status of ['INCOMPLETE', 'BLOCKED', 'TIMEOUT', 'FAILED']) {
     assert.equal(fail[2].status, status);
   });
 }
+
+test('immediate first-registration failure is requeued instead of becoming a terminal failure', async () => {
+  const repository = makeRepository(job);
+  const collector = { async collect() {
+    return {
+      status: 'FAILED', rank: null, pagesScanned: 0, itemsScanned: 0,
+      matchedMid: null, errorCode: 'WORKER_ERROR', errorMessage: 'transient chromium launch failure',
+    };
+  } };
+
+  const result = await processClaimedJob({ repository, collector, rawJob: job, now, requeueOnFailure: true });
+  assert.equal(result.status, 'FAILED');
+  assert.equal(repository.calls.some(call => call[0] === 'fail'), false);
+  const requeue = repository.calls.find(call => call[0] === 'requeue');
+  assert.equal(requeue[1], job.id);
+  assert.equal(requeue[2].errorCode, 'WORKER_ERROR');
+});
