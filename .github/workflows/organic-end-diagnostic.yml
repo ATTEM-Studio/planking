@@ -18,7 +18,5 @@ jobs:
       - run: npm install --prefix collector >/dev/null 2>&1
       - run: npm test --prefix collector
       - run: npx --prefix collector playwright install --with-deps chromium >/dev/null 2>&1
-      - run: node collector/scripts/inspect-ui-pagination.mjs
-      - run: node collector/scripts/inspect-search-more.mjs
-      - run: node collector/scripts/inspect-ad-signals.mjs
+      - run: node collector/scripts/inspect-natural-offset-fallback.mjs
       - run: node collector/scripts/inspect-graphql-arrays.mjs
