@@ -18,4 +18,4 @@ jobs:
       - run: npm install --prefix collector
       - run: npm test --prefix collector
       - run: npx --prefix collector playwright install --with-deps chromium
-      - run: node collector/scripts/smoke-organic-ranking.mjs
+      - run: node collector/scripts/inspect-ui-pagination.mjs
