@@ -9,7 +9,7 @@ on:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -18,5 +18,4 @@ jobs:
       - run: npm install --prefix collector >/dev/null 2>&1
       - run: npm test --prefix collector
       - run: npx --prefix collector playwright install --with-deps chromium >/dev/null 2>&1
-      - run: node collector/scripts/inspect-natural-offset-fallback.mjs
-      - run: node collector/scripts/inspect-graphql-arrays.mjs
+      - run: node collector/scripts/smoke-organic-ranking.mjs
