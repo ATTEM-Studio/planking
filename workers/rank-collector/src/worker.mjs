@@ -1,0 +1,5 @@
+import { collectRank, PlaywrightNaverAdapter } from './engine.mjs';
+import { SupabaseRankRepository } from './repository.mjs';
+export async function runWorkerOnce({ repository, adapter }) { const job = await repository.claimNextJob(); if (!job) return { idle: true }; const result = await collectRank({ keyword: job.keyword, targetPlaceId: job.targetPlaceId, maxRank: job.maxRank }, adapter); await repository.finishJob(job.jobId, result); return result; }
+export async function main() { const repository = new SupabaseRankRepository({ url: process.env.SUPABASE_URL, serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY }); const adapter = new PlaywrightNaverAdapter({ headless: process.env.HEADLESS !== 'false', timeoutMs: Number(process.env.NAVER_TIMEOUT_MS ?? 45000) }); const pollMs = Math.max(1000, Number(process.env.WORKER_POLL_MS ?? 5000)); while (true) { const result = await runWorkerOnce({ repository, adapter }); if (result.idle) await new Promise((resolve) => setTimeout(resolve, pollMs)); } }
+if (import.meta.url === `file://${process.argv[1]}`) main().catch((error) => { console.error(error); process.exitCode = 1; });
