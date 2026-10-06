@@ -40,3 +40,26 @@ test('migration defines queue RPCs and client place access policy', () => {
   assert.match(text, /organization_members/i);
   assert.match(text, /auth\.uid\(\)/i);
 });
+
+test('organization member RLS does not recursively query organization_members', () => {
+  const text = sql();
+  assert.match(text, /create policy organization_members_select_member[\s\S]+using \(user_id = auth\.uid\(\) or public\.is_org_staff\(organization_id\)\)/i);
+  assert.doesNotMatch(text, /create policy organization_members_select_member[\s\S]{0,300}select 1 from public\.organization_members mine/i);
+});
+
+test('rebuild migration removes conflicting legacy queue RPCs and preserves legacy rank data', () => {
+  const text = sql();
+  assert.match(text, /drop function if exists public\.claim_next_rank_job\(\)/i);
+  assert.match(text, /drop function if exists public\.claim_rank_job\(uuid\)/i);
+  assert.match(text, /drop function if exists public\.enqueue_daily_rank_jobs\(\)/i);
+  assert.match(text, /to_regclass\('public\.rank_slots'\)/i);
+  assert.match(text, /legacy-planking-v1/i);
+});
+
+test('migration explicitly grants only required authenticated and service role privileges', () => {
+  const text = sql();
+  assert.match(text, /grant select on public\.rank_snapshots to authenticated/i);
+  assert.match(text, /grant select, insert, update, delete on public\.clients to authenticated/i);
+  assert.match(text, /revoke all on function public\.claim_next_rank_job\(\) from public, anon, authenticated/i);
+  assert.match(text, /grant execute on function public\.claim_next_rank_job\(\) to service_role/i);
+});

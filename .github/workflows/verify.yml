@@ -1,34 +1,17 @@
-name: Verify
-
+name: verify
 on:
   push:
-    branches: [main, 'feat/**']
+    branches: [main, 'rebuild/**']
   pull_request:
 
 jobs:
-  verify:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
-      - name: Install test runner
-        run: python -m pip install pytest
-      - name: Python tests
-        run: python -m pytest -q
-      - name: JavaScript tests
-        run: node --test tests-js/*.test.mjs
-      - name: Compile Python
-        run: python -m compileall -q api src
-      - name: Check JavaScript syntax
-        run: node --check web/app.mjs
-      - name: Install rank collector dependencies
-        run: npm install --prefix collector
-      - name: Rank collector tests
-        run: npm test --prefix collector
-      - name: Rank collector syntax
-        run: npm run check --prefix collector
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm test
+      - run: npm run check
