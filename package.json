@@ -1,12 +1,12 @@
 {
-  "name": "planking-web",
+  "name": "planking",
   "private": true,
-  "type": "module",
-  "engines": {
-    "node": "22.x"
-  },
-  "dependencies": {
-    "@sparticuz/chromium": "149.0.0",
-    "playwright-core": "1.61.1"
+  "version": "2.0.0",
+  "workspaces": ["apps/*", "packages/*", "workers/*"],
+  "engines": {"node": "22.x"},
+  "scripts": {
+    "test": "npm run test --workspace @planking/core && npm run test --workspace @planking/db && npm run test --workspace @planking/rank-collector",
+    "check": "npm run check --workspace @planking/web",
+    "verify": "npm test && npm run check"
   }
 }

@@ -1,0 +1,8 @@
+{
+  "name": "@planking/core",
+  "private": true,
+  "type": "module",
+  "version": "2.0.0",
+  "exports": "./src/index.mjs",
+  "scripts": {"test": "node --test test/*.test.mjs"}
+}

@@ -1,10 +1,8 @@
-__pycache__/
-.pytest_cache/
-*.pyc
+node_modules/
+.next/
+.env
+.env.local
+coverage/
 .DS_Store
-collector/node_modules/
-collector/.env
-collector/.env.*
-collector/.cache/
-collector/.playwright/
-collector/playwright-report/
+*.log
+.vercel/
