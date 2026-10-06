@@ -1,0 +1,3 @@
+type Snapshot = { rank: number | null; status: string; max_rank: number; measured_at: string };
+export function latestSnapshots(rows: Snapshot[]) { const sorted=[...(rows??[])].sort((a,b)=>new Date(b.measured_at).getTime()-new Date(a.measured_at).getTime()); return {latest:sorted[0]??null,previous:sorted[1]??null,history:sorted.reverse()}; }
+export function closestSnapshot(rows: Snapshot[], daysAgo: number) { if(!rows?.length)return null; const target=Date.now()-daysAgo*86400000; return [...rows].sort((a,b)=>Math.abs(new Date(a.measured_at).getTime()-target)-Math.abs(new Date(b.measured_at).getTime()-target))[0]??null; }
