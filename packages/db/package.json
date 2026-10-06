@@ -1,0 +1,8 @@
+{
+  "name": "@planking/db",
+  "private": true,
+  "type": "module",
+  "version": "2.0.0",
+  "exports": "./src/schema.mjs",
+  "scripts": {"test": "node --test test/*.test.mjs"}
+}
