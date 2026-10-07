@@ -2,8 +2,12 @@ import { redirect } from 'next/navigation';
 import { ensureBootstrapOwner, isBootstrapOwner } from './bootstrap-owner.mjs';
 import { createSupabaseAdminClient } from './supabase/admin';
 import { createSupabaseServerClient } from './supabase/server';
+import { isOpenInternalAccess } from './operating-mode.mjs';
 
 export async function requireUser() {
+  if (isOpenInternalAccess()) {
+    return { supabase: createSupabaseAdminClient(), user: null };
+  }
   const supabase = await createSupabaseServerClient();
   const { data: { user }, error } = await supabase.auth.getUser();
   if (error || !user) redirect('/login');
