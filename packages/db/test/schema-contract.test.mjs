@@ -9,6 +9,10 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const sqlPath = path.resolve(here, '../../../supabase/migrations/202610060001_planking_rebuild.sql');
 
 function sql() { return fs.readFileSync(sqlPath, 'utf8'); }
+function allMigrationSql() {
+  const migrations = path.dirname(sqlPath);
+  return fs.readdirSync(migrations).filter((file) => file.endsWith('.sql')).sort().map((file) => fs.readFileSync(path.join(migrations, file), 'utf8')).join('\n');
+}
 
 test('schema exports all required tables and job statuses', () => {
   assert.deepEqual(TABLES, ['organizations','profiles','organization_members','clients','places','keywords','client_place_access','collection_jobs','rank_snapshots','place_metric_snapshots']);
@@ -62,4 +66,10 @@ test('migration explicitly grants only required authenticated and service role p
   assert.match(text, /grant select, insert, update, delete on public\.clients to authenticated/i);
   assert.match(text, /revoke all on function public\.claim_next_rank_job\(\) from public, anon, authenticated/i);
   assert.match(text, /grant execute on function public\.claim_next_rank_job\(\) to service_role/i);
+});
+
+test('manual rank enqueue permits the service role used by open internal access', () => {
+  const manualFunctions = [...allMigrationSql().matchAll(/create or replace function public\.enqueue_manual_rank_job\(p_keyword_id uuid\)[\s\S]+?\$\$;/gi)];
+  const manualFunction = manualFunctions.at(-1)?.[0] ?? '';
+  assert.match(manualFunction, /auth\.jwt\(\)\s*->>\s*'role'[\s\S]{0,160}'service_role'/i);
 });
