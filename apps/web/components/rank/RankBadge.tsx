@@ -1,1 +1,1 @@
-import { presentRank } from '../../lib/presentation.mjs'; export function RankBadge({result}:{result:any}){const view=presentRank(result);return <span className={`rank-badge ${view.tone}`}>{view.label}</span>;}
+import { presentRank } from '../../lib/presentation.mjs'; export function RankBadge({result}:{result:any}){const view=presentRank(result);return <span className={`rank-badge ${view.tone}`} aria-label={view.description}>{view.label}</span>;}
